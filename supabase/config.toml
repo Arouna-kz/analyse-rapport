@@ -1,0 +1,43 @@
+project_id = "xhcwtrbmyasvgjjhvbqq"
+
+[functions.chat]
+verify_jwt = false
+
+[functions.analyze-report]
+verify_jwt = false
+
+[functions.generate-future-report]
+verify_jwt = true
+
+[functions.rag-chat]
+verify_jwt = true
+
+[functions.multi-scenario-predictions]
+verify_jwt = true
+
+[functions.get-shared-prediction]
+verify_jwt = false
+
+[functions.validate-report]
+verify_jwt = true
+
+[functions.send-notification-email]
+verify_jwt = false
+
+[functions.weekly-digest]
+verify_jwt = false
+
+[functions.export-share-analytics]
+verify_jwt = true
+
+[functions.generate-from-template]
+verify_jwt = true
+
+[functions.refine-analysis]
+verify_jwt = true
+
+[functions.arena]
+verify_jwt = false
+
+[functions.ai-error-alert]
+verify_jwt = false
