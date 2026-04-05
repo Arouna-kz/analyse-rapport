@@ -91,8 +91,63 @@ serve(async (req) => {
                     report.file_type === 'application/vnd.ms-excel' ||
                     report.file_path?.endsWith('.xlsx') ||
                     report.file_path?.endsWith('.xls');
+    const isImage = report.file_type?.startsWith('image/') ||
+                    /\.(jpg|jpeg|png|webp|gif|bmp|tiff)$/i.test(report.file_path || '');
     
-    if (report.file_type === 'text/plain') {
+    if (isImage) {
+      // Direct AI Vision extraction for images
+      console.log('Processing image file with AI Vision...');
+      try {
+        const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+        if (lovableApiKey) {
+          const arrayBuffer = await fileData.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuffer);
+          let binary = '';
+          for (let i = 0; i < uint8.length; i++) {
+            binary += String.fromCharCode(uint8[i]);
+          }
+          const base64Data = btoa(binary);
+          const mimeType = report.file_type || 'image/jpeg';
+
+          const visionResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${lovableApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-pro',
+              messages: [
+                {
+                  role: 'system',
+                  content: 'Tu es un expert en OCR. Extrais TOUT le texte visible de l\'image, en préservant la structure (tableaux, colonnes, titres). Pour les tableaux, utilise des séparateurs "|".'
+                },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: `Extrais intégralement le contenu de cette image "${report.title}".` },
+                    { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+                  ]
+                }
+              ],
+              temperature: 0.1,
+            }),
+          });
+
+          if (visionResponse.ok) {
+            const visionData = await visionResponse.json();
+            extractedText = visionData.choices?.[0]?.message?.content || '';
+            console.log('Image Vision extraction successful, length:', extractedText.length);
+          }
+        }
+      } catch (e) {
+        console.error('Image extraction error:', e);
+      }
+
+      if (!extractedText || extractedText.replace(/\s+/g, '').length < 20) {
+        extractedText = `[Image]\nTitre: ${report.title}\nType: ${report.file_type}\nTaille: ${fileData.size} bytes\nNote: Aucun texte significatif extrait de l'image.`;
+      }
+    } else if (report.file_type === 'text/plain') {
       extractedText = await fileData.text();
     } else if (isExcel) {
       const formData = new FormData();
@@ -150,11 +205,66 @@ serve(async (req) => {
           const result = await extractResponse.json();
           extractedText = result.TextResult || '';
         } else {
-          extractedText = `[Document ${report.file_type}]\nExtraction non disponible.`;
+          extractedText = '';
         }
       } catch (e) {
         console.error('Document extraction error:', e);
-        extractedText = `[Document]\nErreur d'extraction: ${e instanceof Error ? e.message : 'Unknown error'}`;
+        extractedText = '';
+      }
+    }
+
+    // ===== HYBRID OCR FALLBACK via AI Vision =====
+    const isTextTooShort = extractedText.replace(/\s+/g, '').length < 80;
+    if (isTextTooShort && (report.file_type === 'application/pdf' || report.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
+      console.log('Text extraction insufficient, activating AI Vision OCR fallback...');
+      try {
+        const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+        if (lovableApiKey) {
+          const arrayBuffer = await fileData.arrayBuffer();
+          const uint8 = new Uint8Array(arrayBuffer);
+          let binary = '';
+          for (let i = 0; i < uint8.length; i++) {
+            binary += String.fromCharCode(uint8[i]);
+          }
+          const base64Data = btoa(binary);
+          const mimeType = report.file_type;
+
+          const visionResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${lovableApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-pro',
+              messages: [
+                {
+                  role: 'system',
+                  content: 'Tu es un expert en OCR. Extrais TOUT le texte visible du document, en préservant la structure (tableaux, colonnes, titres). Pour les tableaux, utilise des séparateurs "|".'
+                },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: `Extrais intégralement le contenu de ce document "${report.title}".` },
+                    { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+                  ]
+                }
+              ],
+              temperature: 0.1,
+            }),
+          });
+
+          if (visionResponse.ok) {
+            const visionData = await visionResponse.json();
+            const visionText = visionData.choices?.[0]?.message?.content || '';
+            if (visionText.replace(/\s+/g, '').length > 80) {
+              extractedText = `[Extraction par OCR IA]\n${visionText}`;
+              console.log('AI Vision OCR successful, length:', extractedText.length);
+            }
+          }
+        }
+      } catch (visionErr) {
+        console.error('AI Vision OCR error:', visionErr);
       }
     }
 

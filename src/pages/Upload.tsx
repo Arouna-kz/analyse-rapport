@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { FileText, Upload as UploadIcon, Loader2, ArrowLeft, Cpu } from 'lucide-react';
@@ -14,7 +13,6 @@ import { useArenaConfig } from '@/hooks/useArenaConfig';
 const Upload = () => {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
-  const [reportType, setReportType] = useState<'past' | 'current' | 'future'>('current');
   const [uploading, setUploading] = useState(false);
   const [useArena, setUseArena] = useState(true);
   const navigate = useNavigate();
@@ -28,29 +26,26 @@ const Upload = () => {
         'application/pdf', 
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
         'text/plain',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-        'application/vnd.ms-excel' // .xls
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'image/jpeg',
+        'image/png',
+        'image/webp',
       ];
       const fileExt = selectedFile.name.split('.').pop()?.toLowerCase();
       const isExcel = fileExt === 'xlsx' || fileExt === 'xls';
+      const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExt || '');
       
-      if (!validTypes.includes(selectedFile.type) && !isExcel) {
+      if (!validTypes.includes(selectedFile.type) && !isExcel && !isImage) {
         toast({
           title: "Format invalide",
-          description: "Seuls les fichiers PDF, DOCX, TXT et Excel (XLSX, XLS) sont acceptés",
+          description: "Seuls les fichiers PDF, DOCX, TXT, Excel (XLSX, XLS) et images (JPG, PNG, WebP) sont acceptés",
           variant: "destructive",
         });
         return;
       }
       
-      if (selectedFile.size > 20 * 1024 * 1024) {
-        toast({
-          title: "Fichier trop volumineux",
-          description: "La taille maximale est de 20 Mo",
-          variant: "destructive",
-        });
-        return;
-      }
+      // No file size limit
       
       setFile(selectedFile);
       if (!title) {
@@ -94,13 +89,12 @@ const Upload = () => {
           title,
           file_path: filePath,
           file_type: file.type,
-          report_type: reportType,
+          report_type: 'current' as const,
           status: 'pending',
         });
 
       if (dbError) throw dbError;
 
-      // Get the inserted report ID
       const { data: insertedReport } = await supabase
         .from('reports')
         .select('id')
@@ -115,7 +109,6 @@ const Upload = () => {
         description: "L'analyse commencera sous peu",
       });
 
-      // Trigger analysis with Arena config
       if (insertedReport) {
         const enabledModels = getEnabledModels();
         supabase.functions
@@ -159,7 +152,7 @@ const Upload = () => {
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto">
           <div className="mb-8">
-            <h1 className="text-3xl font-display font-bold mb-2">Nouveau rapport</h1>
+            <h1 className="text-3xl font-display font-bold mb-2">Analyse de rapport</h1>
             <p className="text-muted-foreground">
               Téléchargez un document pour l'analyser avec l'IA
             </p>
@@ -168,9 +161,8 @@ const Upload = () => {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle>Informations du rapport</CardTitle>
-              <CardDescription className="space-y-1">
-                <span>Formats acceptés : PDF, DOCX, TXT, Excel (XLSX, XLS)</span>
-                <span className="block text-xs">Taille maximale : 20 Mo</span>
+              <CardDescription>
+                Formats acceptés : PDF, DOCX, TXT, Excel (XLSX, XLS), Images (JPG, PNG, WebP)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -183,24 +175,6 @@ const Upload = () => {
                   onChange={(e) => setTitle(e.target.value)}
                   disabled={uploading}
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="type">Type de rapport</Label>
-                <Select
-                  value={reportType}
-                  onValueChange={(value: any) => setReportType(value)}
-                  disabled={uploading}
-                >
-                  <SelectTrigger id="type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="past">Rapport passé (analyse historique)</SelectItem>
-                    <SelectItem value="current">Rapport actuel (analyse en cours)</SelectItem>
-                    <SelectItem value="future">Rapport futur (prévisions)</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               {/* Arena Mode Toggle */}
@@ -232,7 +206,7 @@ const Upload = () => {
                   <input
                     id="file"
                     type="file"
-                    accept=".pdf,.docx,.txt,.xlsx,.xls"
+                    accept=".pdf,.docx,.txt,.xlsx,.xls,.jpg,.jpeg,.png,.webp"
                     onChange={handleFileChange}
                     disabled={uploading}
                     className="hidden"

@@ -68,7 +68,7 @@ const MultiScenarioPredictions = () => {
   const [analyticsData, setAnalyticsData] = useState<any[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [refining, setRefining] = useState(false);
-  const [useArenaMode, setUseArenaMode] = useState(false);
+  const [useArenaMode, setUseArenaMode] = useState(true);
   const [arenaDetails, setArenaDetails] = useState<any>(null);
 
   const handleRefinePrediction = async (feedback: string) => {

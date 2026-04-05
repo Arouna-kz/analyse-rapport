@@ -10,9 +10,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Upload, FileText, Database, Loader2, Sparkles, Zap, Settings2, X, Plus } from "lucide-react";
+import { ArrowLeft, Upload, FileText, Database, Loader2, Sparkles, Zap, Settings2, X, Plus, Download, Eye } from "lucide-react";
 import { useArenaConfig } from "@/hooks/useArenaConfig";
 import { Badge } from "@/components/ui/badge";
+import ReactMarkdown from "react-markdown";
+import { ReportExportButtons } from "@/components/ReportExportButtons";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Report {
   id: string;
@@ -41,7 +44,8 @@ const GenerateFromTemplate = () => {
   const [additionalInstructions, setAdditionalInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [useArenaMode, setUseArenaMode] = useState(false);
+  const [useArenaMode, setUseArenaMode] = useState(true);
+  const [generatedResult, setGeneratedResult] = useState<{ reportId: string; title: string; content: string } | null>(null);
 
   useEffect(() => {
     fetchCompletedReports();
@@ -93,14 +97,7 @@ const GenerateFromTemplate = () => {
         continue;
       }
       
-      if (file.size > 20 * 1024 * 1024) {
-        toast({
-          title: "Fichier trop volumineux",
-          description: `${file.name}: la taille maximale est de 20 Mo`,
-          variant: "destructive",
-        });
-        continue;
-      }
+      // No file size limit
       
       validFiles.push({
         file,
@@ -143,6 +140,36 @@ const GenerateFromTemplate = () => {
   // Validation: need template file OR existing reports (data files are optional)
   const hasValidTemplate = templateSource === "file" ? !!templateFile : selectedReports.length > 0;
   const canGenerate = hasValidTemplate && reportTitle.trim();
+
+  const handleDownloadReport = () => {
+    if (!generatedResult) return;
+    const blob = new Blob([generatedResult.content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${generatedResult.title.replace(/[^a-z0-9àâéèêëïîôùûüÿçœæ]/gi, '_')}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadSourceFile = async (filePath: string, fileName: string) => {
+    try {
+      const { data, error } = await supabase.storage.from('reports').download(filePath);
+      if (error) throw error;
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      toast({ title: "Erreur", description: "Impossible de télécharger le fichier", variant: "destructive" });
+    }
+  };
 
   const handleGenerate = async () => {
     if (!hasValidTemplate) {
@@ -220,14 +247,16 @@ const GenerateFromTemplate = () => {
         throw response.error;
       }
 
-      toast({
-        title: useArenaMode ? "Rapport généré par Arena" : "Rapport généré avec succès",
-        description: useArenaMode 
-          ? `Consensus multi-modèles avec ${enabledModels.length} modèles`
-          : "Votre rapport a été créé et est disponible dans le tableau de bord",
+      setGeneratedResult({
+        reportId: response.data.reportId,
+        title: response.data.title || reportTitle,
+        content: response.data.content || '',
       });
 
-      navigate('/dashboard');
+      toast({
+        title: useArenaMode ? "Rapport généré par Arena" : "Rapport généré avec succès",
+        description: "Le rapport est prêt. Vous pouvez le télécharger ou le consulter.",
+      });
     } catch (error: any) {
       console.error('Generation error:', error);
       toast({
@@ -351,7 +380,7 @@ const GenerateFromTemplate = () => {
                     <p className="text-foreground font-medium">
                       {dataFiles.length > 0 ? 'Ajouter d\'autres fichiers' : 'Cliquez pour uploader'}
                     </p>
-                    <p className="text-muted-foreground text-sm mt-1">PDF, DOCX, TXT, CSV, Excel (max 20 Mo chacun)</p>
+                    <p className="text-muted-foreground text-sm mt-1">PDF, DOCX, TXT, CSV, Excel</p>
                     <p className="text-muted-foreground text-xs mt-2">
                       Vous pouvez sélectionner plusieurs fichiers à la fois
                     </p>
@@ -555,12 +584,113 @@ const GenerateFromTemplate = () => {
           </Button>
 
           {/* Validation hint */}
-          {!canGenerate && (
+          {!canGenerate && !generatedResult && (
             <p className="text-center text-sm text-muted-foreground">
               {!hasValidTemplate && templateSource === "file" && "Veuillez uploader un fichier modèle"}
               {!hasValidTemplate && templateSource === "database" && "Veuillez sélectionner au moins un rapport exemple"}
               {hasValidTemplate && !reportTitle.trim() && "Veuillez entrer un titre pour le rapport"}
             </p>
+          )}
+
+          {/* Generated Result */}
+          {generatedResult && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardHeader>
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-primary" />
+                      Rapport généré : {generatedResult.title}
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Aperçu et export du rapport
+                    </CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => navigate(`/report/${generatedResult.reportId}`)}>
+                    <Eye className="h-4 w-4 mr-2" />
+                    Voir dans l'app
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Export buttons */}
+                <ReportExportButtons title={generatedResult.title} content={generatedResult.content} />
+
+                {/* Markdown preview with tabs */}
+                <Tabs defaultValue="preview" className="w-full">
+                  <TabsList className="w-full">
+                    <TabsTrigger value="preview" className="flex-1">Aperçu</TabsTrigger>
+                    <TabsTrigger value="source" className="flex-1">Source Markdown</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="preview" className="mt-4">
+                    <div className="prose prose-sm dark:prose-invert max-w-none max-h-[500px] overflow-y-auto rounded-lg border bg-card p-6">
+                      <ReactMarkdown>{generatedResult.content}</ReactMarkdown>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="source" className="mt-4">
+                    <pre className="text-xs bg-muted rounded-lg p-4 max-h-[500px] overflow-y-auto whitespace-pre-wrap break-words font-mono">
+                      {generatedResult.content}
+                    </pre>
+                  </TabsContent>
+                </Tabs>
+
+                {/* Source files */}
+                {(dataFiles.length > 0 || templateFile || (templateSource === "database" && selectedReports.length > 0)) && (
+                  <div className="border-t pt-4">
+                    <p className="text-sm font-medium text-muted-foreground mb-3">Fichiers sources</p>
+                    <div className="space-y-2">
+                      {templateFile && (
+                        <div className="flex items-center justify-between p-2 rounded-lg border bg-card">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{templateFile.name} (modèle)</span>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => {
+                            const url = URL.createObjectURL(templateFile);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = templateFile.name;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}>
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                      {dataFiles.map((df) => (
+                        <div key={df.id} className="flex items-center justify-between p-2 rounded-lg border bg-card">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{df.file.name} (données)</span>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => {
+                            const url = URL.createObjectURL(df.file);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = df.file.name;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}>
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      {templateSource === "database" && completedReports.filter(r => selectedReports.includes(r.id)).map(r => (
+                        <div key={r.id} className="flex items-center justify-between p-2 rounded-lg border bg-card">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">{r.title}</span>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => navigate(`/report/${r.id}`)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
         </div>
       </main>

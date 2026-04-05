@@ -290,6 +290,10 @@ serve(async (req) => {
         if (dataFileName.endsWith('.txt') || dataFileName.endsWith('.csv') || dataFileName.endsWith('.json')) {
           fileText = await dataFileData.text();
           console.log('Text file extracted directly:', filePath);
+        } else if (dataFileName.match(/\.(jpg|jpeg|png|webp|gif|bmp|tiff)$/)) {
+          // Image files: use AI Vision directly
+          console.log('Processing image file with AI Vision:', filePath);
+          fileText = await extractTextWithAI(dataFileData, filePath, lovableApiKey);
         } else if (dataFileName.endsWith('.pdf') || dataFileName.endsWith('.docx') || dataFileName.endsWith('.doc')) {
           // For binary files, try to read as text first
           try {
@@ -403,38 +407,55 @@ KPIs: ${JSON.stringify(analysis?.kpis || {}, null, 2)}
     }
 
     // Build prompt for AI
-    const systemPrompt = `Tu es un expert en rédaction de rapports professionnels. Tu dois générer un rapport structuré et professionnel.
+    const systemPrompt = `Tu es un expert senior en rédaction de rapports professionnels. Tu dois générer un rapport COMPLET, DÉTAILLÉ et STRUCTURÉ.
 
-RÈGLES IMPORTANTES:
-1. Si un modèle est fourni, suis son style et sa structure
-2. Si les données sont limitées, utilise le titre et les instructions pour créer un rapport cohérent
-3. Maintiens un ton professionnel
-4. Inclus des KPIs pertinents
-5. Génère un contenu complet et détaillé
-6. N'utilise JAMAIS de caractères ** dans le texte
+RÈGLES CRITIQUES:
+1. Le rapport doit faire au minimum 1500 mots de contenu riche et substantiel
+2. Si un modèle de rédaction est fourni, reproduis fidèlement son style, sa structure et son niveau de détail
+3. Si des données sont fournies, extrais TOUS les chiffres, tendances et informations pertinentes
+4. Si les données sont limitées, enrichis le rapport avec une analyse contextuelle pertinente basée sur le titre et les instructions
+5. Chaque section doit contenir plusieurs paragraphes détaillés
+6. Les KPIs doivent être des valeurs numériques concrètes extraites ou estimées à partir des données
+7. N'utilise JAMAIS de caractères ** dans le texte
+8. Utilise des titres avec # pour structurer le markdown
+
+STRUCTURE OBLIGATOIRE du contenu:
+# [Titre]
+## Résumé Exécutif
+[Paragraphe de synthèse détaillé]
+## Analyse des Données
+[Analyse approfondie des données fournies avec chiffres]
+## Indicateurs Clés de Performance
+[Description narrative des KPIs identifiés]
+## Tendances et Observations
+[Analyse des tendances, comparaisons, évolutions]
+## Recommandations
+[Recommandations actionables et détaillées]
+## Conclusion
+[Synthèse finale]
 
 Réponds en JSON avec cette structure:
 {
   "title": "Titre du rapport",
-  "content": "Contenu complet du rapport en markdown (sans ** pour le gras, utilise simplement du texte normal)",
-  "summary": "Résumé exécutif (200-300 mots)",
-  "keyPoints": ["point1", "point2", "point3"],
-  "kpis": {"KPI1": valeur, "KPI2": valeur},
-  "insights": "Analyse et recommandations"
+  "content": "Contenu COMPLET du rapport en markdown structuré (minimum 1500 mots)",
+  "summary": "Résumé exécutif détaillé (200-400 mots)",
+  "keyPoints": ["point détaillé 1", "point détaillé 2", "point détaillé 3", "point détaillé 4", "point détaillé 5"],
+  "kpis": {"Nom KPI 1": valeur_numérique, "Nom KPI 2": valeur_numérique},
+  "insights": "Analyse approfondie et recommandations stratégiques (minimum 300 mots)"
 }`;
 
-    const userPrompt = `TITRE SOUHAITÉ: ${reportTitle}
+    const userPrompt = `TITRE DU RAPPORT À GÉNÉRER: ${reportTitle}
 
-DONNÉES À ANALYSER:
-${dataText.substring(0, 15000)}
+DONNÉES SOURCE À ANALYSER (extrais TOUS les chiffres et informations):
+${dataText.substring(0, 30000)}
 
-${templateContent ? `MODÈLE DE RÉDACTION À SUIVRE:
-${templateContent.substring(0, 10000)}` : 'Crée un rapport professionnel standard avec les sections habituelles: résumé exécutif, analyse, conclusions et recommandations.'}
+${templateContent ? `MODÈLE DE RÉDACTION À REPRODUIRE (suis cette structure et ce style):
+${templateContent.substring(0, 15000)}` : 'Génère un rapport professionnel complet avec les sections: Résumé exécutif, Analyse des données, KPIs, Tendances, Recommandations et Conclusion.'}
 
-${additionalInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES:
+${additionalInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES DE L'UTILISATEUR:
 ${additionalInstructions}` : ''}
 
-Génère maintenant un rapport professionnel complet.`;
+IMPORTANT: Le rapport doit être substantiel, professionnel et exploitable. Chaque section doit contenir un contenu riche et détaillé. Ne fais pas de rapport superficiel.`;
 
     console.log('Calling AI API... Arena mode:', useArena);
 
@@ -511,7 +532,7 @@ Génère maintenant un rapport professionnel complet.`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: stdConfig.flashModel,
+          model: stdConfig.proModel,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
@@ -563,8 +584,27 @@ Génère maintenant un rapport professionnel complet.`;
     if (result.summary) result.summary = result.summary.replace(/\*\*/g, '');
     if (result.insights) result.insights = result.insights.replace(/\*\*/g, '');
 
+    // Save generated content to storage as markdown file
+    const generatedFileName = `generated_${Date.now()}_${(result.title || reportTitle).replace(/[^a-z0-9]/gi, '_').substring(0, 50)}.md`;
+    const generatedFilePath = `${user.id}/${generatedFileName}`;
+    
+    const markdownContent = result.content || `# ${result.title || reportTitle}\n\n${result.summary || ''}\n\n${result.insights || ''}`;
+    const fileBlob = new Blob([markdownContent], { type: 'text/markdown; charset=utf-8' });
+    
+    const { error: uploadError } = await supabase.storage
+      .from('reports')
+      .upload(generatedFilePath, fileBlob, {
+        contentType: 'text/markdown',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Upload generated file error:', uploadError);
+    }
+
+    const finalFilePath = !uploadError ? generatedFilePath : (allDataFilePaths[0] || templateFilePath || null);
+
     // Create report in database
-    const primaryFilePath = allDataFilePaths[0] || templateFilePath || null;
     const { data: newReport, error: insertError } = await supabase
       .from('reports')
       .insert({
@@ -572,13 +612,15 @@ Génère maintenant un rapport professionnel complet.`;
         title: result.title || reportTitle,
         report_type: 'current',
         status: 'completed',
-        file_path: primaryFilePath,
+        file_path: finalFilePath,
+        file_type: 'md',
         metadata: {
           generated_from_template: true,
           template_source: templateSource,
           template_reports: selectedReportIds || [],
           data_files: allDataFilePaths,
           arena_details: arenaDetails,
+          source_template_file: templateFilePath || null,
         }
       })
       .select()

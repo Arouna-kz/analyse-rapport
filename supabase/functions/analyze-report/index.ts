@@ -333,10 +333,63 @@ serve(async (req) => {
                     report.file_type === 'application/vnd.ms-excel' ||
                     report.file_path?.endsWith('.xlsx') ||
                     report.file_path?.endsWith('.xls');
+    const isImage = report.file_type?.startsWith('image/') ||
+                    /\.(jpg|jpeg|png|webp|gif|bmp|tiff)$/i.test(report.file_path || '');
     
-    console.log('File type:', report.file_type, 'Is Excel:', isExcel);
+    console.log('File type:', report.file_type, 'Is Excel:', isExcel, 'Is Image:', isImage);
 
-    if (report.file_type === 'text/plain') {
+    if (isImage) {
+      // Direct AI Vision extraction for images
+      console.log('Processing image file with AI Vision...');
+      try {
+        const arrayBuffer = await fileData.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = '';
+        for (let i = 0; i < uint8.length; i++) {
+          binary += String.fromCharCode(uint8[i]);
+        }
+        const base64Data = btoa(binary);
+        const mimeType = report.file_type || 'image/jpeg';
+
+        const visionConfig = getAIProviderConfig();
+        const visionResponse = await fetch(visionConfig.baseUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${visionConfig.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: visionConfig.proModel,
+            messages: [
+              {
+                role: 'system',
+                content: `Tu es un expert en OCR et extraction de données. Extrais TOUT le texte visible de l'image, en préservant la structure (tableaux, colonnes, titres, listes). Pour les tableaux financiers ou budgétaires, aligne les colonnes avec des séparateurs "|". Ne résume pas, extrais fidèlement le contenu.`
+              },
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: `Extrais intégralement le contenu textuel de cette image "${report.title}". Préserve la structure, les tableaux et les chiffres.` },
+                  { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+                ]
+              }
+            ],
+            temperature: 0.1,
+          }),
+        });
+
+        if (visionResponse.ok) {
+          const visionData = await visionResponse.json();
+          extractedText = visionData.choices?.[0]?.message?.content || '';
+          console.log('Image AI Vision extraction successful, length:', extractedText.length);
+        }
+      } catch (e) {
+        console.error('Image extraction error:', e);
+      }
+
+      if (!extractedText || extractedText.replace(/\s+/g, '').length < 20) {
+        extractedText = `[Image]\nTitre: ${report.title}\nType: ${report.file_type}\nTaille: ${fileData.size} bytes\nNote: Aucun texte significatif extrait de l'image.`;
+      }
+    } else if (report.file_type === 'text/plain') {
       extractedText = await fileData.text();
       console.log('Text file extracted, length:', extractedText.length);
     } else if (isExcel) {
@@ -421,17 +474,104 @@ serve(async (req) => {
         }
       } catch (e) {
         console.error('Cloudmersive error:', e);
-        extractedText = `Document: ${report.title}\nContenu nécessitant une extraction spécialisée.`;
+        extractedText = '';
       }
     }
 
-    // If extraction failed or file is too short, try AI-based content description
-    if (extractedText.length < 100) {
-      console.log('Extraction insufficient, using AI fallback for file description');
+    // ===== HYBRID OCR FALLBACK: Use AI Vision when text extraction fails =====
+    const isTextTooShort = extractedText.replace(/\s+/g, '').length < 80;
+    if (isTextTooShort && (report.file_type === 'application/pdf' || report.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
+      console.log('Text extraction insufficient, activating AI Vision OCR fallback...');
+      try {
+        // Convert file to base64 for vision model
+        const arrayBuffer = await fileData.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = '';
+        for (let i = 0; i < uint8.length; i++) {
+          binary += String.fromCharCode(uint8[i]);
+        }
+        const base64Data = btoa(binary);
+        const mimeType = report.file_type === 'application/pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+        const visionConfig = getAIProviderConfig();
+        const visionResponse = await fetch(visionConfig.baseUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${visionConfig.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: visionConfig.proModel,
+            messages: [
+              {
+                role: 'system',
+                content: `Tu es un expert en OCR et extraction de données. Extrais TOUT le texte visible du document fourni, en préservant la structure (tableaux, colonnes, titres, listes). Pour les tableaux financiers ou budgétaires, aligne les colonnes avec des séparateurs "|". Ne résume pas, extrais fidèlement le contenu.`
+              },
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: `Extrais intégralement le contenu textuel de ce document "${report.title}". Préserve la structure, les tableaux et les chiffres.`
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:${mimeType};base64,${base64Data}`
+                    }
+                  }
+                ]
+              }
+            ],
+            temperature: 0.1,
+          }),
+        });
+
+        if (visionResponse.ok) {
+          const visionData = await visionResponse.json();
+          const visionText = visionData.choices?.[0]?.message?.content || '';
+          if (visionText.replace(/\s+/g, '').length > 80) {
+            extractedText = `[Extraction par OCR IA]\n${visionText}`;
+            console.log('AI Vision OCR successful, length:', extractedText.length);
+          } else {
+            console.log('AI Vision OCR returned insufficient content');
+          }
+        } else {
+          console.error('AI Vision OCR failed:', visionResponse.status);
+        }
+      } catch (visionErr) {
+        console.error('AI Vision OCR error:', visionErr);
+      }
+    }
+
+    // Final fallback with metadata context
+    if (extractedText.replace(/\s+/g, '').length < 80) {
+      console.log('All extraction methods failed, using metadata fallback');
       extractedText = `Rapport: ${report.title}\nType de fichier: ${report.file_type}\nType de rapport: ${report.report_type}\n\nLe fichier a été uploadé mais l'extraction textuelle directe n'a pas fonctionné. L'analyse sera basée sur le contexte et les métadonnées disponibles.`;
     }
 
     console.log('Text extracted, length:', extractedText.length);
+
+    // Detect document context for intelligent analysis
+    const titleLower = report.title.toLowerCase();
+    const isBudget = titleLower.includes('budget') || titleLower.includes('financ') || titleLower.includes('comptab') || titleLower.includes('trésorerie');
+    const isProject = titleLower.includes('projet') || titleLower.includes('plan');
+    
+    let contextualInstructions = '';
+    if (isBudget) {
+      contextualInstructions = `\n\nINSTRUCTION CONTEXTUELLE - DOCUMENT FINANCIER/BUDGÉTAIRE:
+Ce document est identifié comme un document financier. Cherche proactivement ces indicateurs même si la structure est irrégulière:
+- Revenus / Recettes (totaux, par catégorie)
+- Dépenses / Charges (fonctionnement, investissement)
+- Solde / Résultat net
+- Investissements prévus
+- Ratios financiers (endettement, autofinancement)
+- Évolutions par rapport aux exercices précédents
+Si des données chiffrées sont présentes, extrais-les en KPIs avec les unités (€, %, etc.).`;
+    } else if (isProject) {
+      contextualInstructions = `\n\nINSTRUCTION CONTEXTUELLE - DOCUMENT PROJET:
+Cherche proactivement: objectifs, jalons, budget alloué, échéances, parties prenantes, risques identifiés, indicateurs de suivi.`;
+    }
 
     // Generate analysis prompt
     const analysisPrompt = `Analyse le rapport suivant et fournis:
@@ -439,12 +579,13 @@ serve(async (req) => {
 2. 5 points clés principaux
 3. 3-5 KPIs pertinents avec des valeurs numériques
 4. Des insights et recommandations
+${contextualInstructions}
 
 Type de rapport: ${report.report_type}
 Titre: ${report.title}
 
 Contenu:
-${extractedText.substring(0, 4000)}
+${extractedText.substring(0, 8000)}
 
 Réponds en format JSON avec cette structure:
 {

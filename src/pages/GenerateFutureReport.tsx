@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, FileText, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, Sparkles, Eye } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import ReactMarkdown from 'react-markdown';
+import { ReportExportButtons } from '@/components/ReportExportButtons';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Report {
   id: string;
@@ -197,12 +199,34 @@ const GenerateFutureReport = () => {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  <div>
-                    <h2 className="text-2xl font-bold mb-4">{generatedReport.title}</h2>
-                    <div className="prose prose-sm max-w-none">
-                      <ReactMarkdown>{generatedReport.content}</ReactMarkdown>
-                    </div>
-                  </div>
+                  {/* Export buttons */}
+                  <ReportExportButtons 
+                    title={generatedReport.title || 'Rapport Futur'} 
+                    content={(() => {
+                      const kpis = generatedReport.projectedKpis ? `\n\n## KPIs Projetés\n${Object.entries(generatedReport.projectedKpis).map(([k, v]) => `- **${k}**: ${v}`).join('\n')}` : '';
+                      const recs = generatedReport.recommendations?.length ? `\n\n## Recommandations\n${generatedReport.recommendations.map((r: string) => `- ${r}`).join('\n')}` : '';
+                      return `# ${generatedReport.title}\n\n${generatedReport.content}${kpis}${recs}`;
+                    })()}
+                  />
+
+                  {/* Preview with tabs */}
+                  <Tabs defaultValue="preview" className="w-full">
+                    <TabsList className="w-full">
+                      <TabsTrigger value="preview" className="flex-1">Aperçu</TabsTrigger>
+                      <TabsTrigger value="source" className="flex-1">Source</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="preview" className="mt-4">
+                      <div className="prose prose-sm dark:prose-invert max-w-none max-h-[400px] overflow-y-auto rounded-lg border bg-card p-4">
+                        <h2>{generatedReport.title}</h2>
+                        <ReactMarkdown>{generatedReport.content}</ReactMarkdown>
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="source" className="mt-4">
+                      <pre className="text-xs bg-muted rounded-lg p-4 max-h-[400px] overflow-y-auto whitespace-pre-wrap break-words font-mono">
+                        {generatedReport.content}
+                      </pre>
+                    </TabsContent>
+                  </Tabs>
 
                   {generatedReport.projectedKpis && Object.keys(generatedReport.projectedKpis).length > 0 && (
                     <>

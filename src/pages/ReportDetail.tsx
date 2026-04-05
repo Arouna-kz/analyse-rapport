@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, FileText, Clock, CheckCircle, AlertCircle, TrendingUp, BarChart3, Download, FileSpreadsheet, Share2, Copy, Cpu, FileDown } from 'lucide-react';
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend, AreaChart, Area } from 'recharts';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -422,12 +423,12 @@ const ReportDetail = () => {
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 max-w-6xl">
         {/* Header Section */}
         <div className="mb-6 sm:mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 mb-4">
-            <div className="flex items-start gap-3 flex-1">
-              {getStatusIcon()}
-              <div className="flex-1 min-w-0">
-                <h1 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold mb-2 break-words">{report.title}</h1>
-                <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
+          <div className="flex flex-col gap-3 sm:gap-4 mb-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-1 shrink-0">{getStatusIcon()}</div>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-display font-bold leading-tight break-words">{report.title}</h1>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground mt-2">
                   <span>
                     Créé le {new Date(report.created_at).toLocaleDateString('fr-FR', {
                       year: 'numeric',
@@ -436,11 +437,6 @@ const ReportDetail = () => {
                     })}
                   </span>
                   <FileTypeIndicator fileType={report.file_type} filePath={report.file_path} size="sm" />
-                  <Badge className="bg-primary/10 text-primary border-primary/20">
-                    {report.report_type === 'past' && 'Passé'}
-                    {report.report_type === 'current' && 'Actuel'}
-                    {report.report_type === 'future' && 'Futur'}
-                  </Badge>
                 </div>
               </div>
             </div>
@@ -698,16 +694,26 @@ const ReportDetail = () => {
 
                   {/* KPI Cards */}
                   <ScrollArea className={kpiData.length > 12 ? 'max-h-[400px]' : ''}>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">
-                      {kpiData.map((kpi, index) => (
-                        <Card key={index} className="bg-gradient-to-br from-primary/5 to-accent/5 border-primary/10 hover:shadow-md transition-shadow">
-                          <CardContent className="pt-4 sm:pt-6 text-center">
-                            <p className="text-xs sm:text-sm text-muted-foreground mb-1 truncate">{kpi.name}</p>
-                            <p className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">{kpi.value}</p>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
+                    <TooltipProvider delayDuration={200}>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">
+                        {kpiData.map((kpi, index) => (
+                          <UITooltip key={index}>
+                            <TooltipTrigger asChild>
+                              <Card className="bg-gradient-to-br from-primary/5 to-accent/5 border-primary/10 hover:shadow-md transition-shadow cursor-default">
+                                <CardContent className="pt-4 sm:pt-6 text-center">
+                                  <p className="text-xs sm:text-sm text-muted-foreground mb-1 truncate">{kpi.name}</p>
+                                  <p className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent truncate">{kpi.value}</p>
+                                </CardContent>
+                              </Card>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-medium">{kpi.name}</p>
+                              <p className="text-sm">{kpi.value}</p>
+                            </TooltipContent>
+                          </UITooltip>
+                        ))}
+                      </div>
+                    </TooltipProvider>
                   </ScrollArea>
                 </CardContent>
               </Card>

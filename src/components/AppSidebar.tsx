@@ -30,21 +30,22 @@ import {
   Shield,
   FileText,
   LogOut,
+  ChevronDown,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 const mainNavItems = [
   { title: 'Tableau de bord', url: '/dashboard', icon: LayoutDashboard },
-  { title: 'Importer', url: '/upload', icon: Upload },
+  { title: 'Analyse de rapport', url: '/upload', icon: Upload },
+  { title: 'Générer Rapport', url: '/generate-template', icon: Wand2 },
+  { title: 'Génération prédictive', url: '/predictions', icon: Sparkles },
   { title: 'Chat IA', url: '/chat', icon: MessageSquare },
   { title: 'Alertes', url: '/alerts', icon: Bell, badgeKey: 'alerts' as const },
-  { title: 'Prédictions', url: '/predictions', icon: Sparkles },
-];
-
-const toolsNavItems = [
-  { title: 'Générer Rapport', url: '/generate-template', icon: Wand2 },
-  { title: 'Paramètres Arena', url: '/arena-settings', icon: Settings2 },
-  { title: 'Documentation', url: '/documentation', icon: BookOpen },
 ];
 
 export function AppSidebar() {
@@ -57,6 +58,7 @@ export function AppSidebar() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -71,13 +73,11 @@ export function AppSidebar() {
     loadUser();
   }, []);
 
-  // Refresh unread count when navigating back from alerts
   useEffect(() => {
     if (location.pathname === '/alerts') return;
     loadUnreadAlerts();
   }, [location.pathname]);
 
-  // Realtime subscription for alert badge updates
   useEffect(() => {
     const channel = supabase
       .channel('alert-badge-realtime')
@@ -142,7 +142,11 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <div className="flex items-center gap-3">
+        <div
+          className="flex items-center gap-3 cursor-pointer"
+          onClick={() => navigate('/')}
+          title="Retour à l'accueil"
+        >
           <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary to-accent shadow-md shrink-0">
             <FileText className="h-5 w-5 text-primary-foreground" />
           </div>
@@ -191,56 +195,51 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Outils</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {toolsNavItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild>
-                    <NavLink to={item.url} end className={linkClass} activeClassName={activeClass}>
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-              {isAdmin && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <NavLink to="/admin" end className={linkClass} activeClassName={activeClass}>
-                      <Shield className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span>Administration</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-3 space-y-2">
         {!collapsed && <ThemeToggle />}
-        
-        <div
-          className="flex items-center gap-3 rounded-lg p-2 cursor-pointer hover:bg-sidebar-accent transition-colors"
-          onClick={() => navigate('/profile')}
-        >
-          <Avatar className="h-8 w-8 shrink-0">
-            {avatarUrl && <AvatarImage src={avatarUrl} alt="Avatar" />}
-            <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-              {getInitials()}
-            </AvatarFallback>
-          </Avatar>
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium truncate">{displayName || 'Mon profil'}</p>
-              <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
+
+        <Collapsible open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
+          <CollapsibleTrigger asChild>
+            <div className="flex items-center gap-3 rounded-lg p-2 cursor-pointer hover:bg-sidebar-accent transition-colors">
+              <Avatar className="h-8 w-8 shrink-0">
+                {avatarUrl && <AvatarImage src={avatarUrl} alt="Avatar" />}
+                <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                  {getInitials()}
+                </AvatarFallback>
+              </Avatar>
+              {!collapsed && (
+                <div className="min-w-0 flex-1 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{displayName || 'Mon profil'}</p>
+                    <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
+                  </div>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-1 mt-1">
+            <NavLink to="/profile" end className={`${linkClass} text-xs`} activeClassName={activeClass}>
+              <span>Mon profil</span>
+            </NavLink>
+            <NavLink to="/arena-settings" end className={`${linkClass} text-xs`} activeClassName={activeClass}>
+              <Settings2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Paramètres Arena</span>
+            </NavLink>
+            <NavLink to="/documentation" end className={`${linkClass} text-xs`} activeClassName={activeClass}>
+              <BookOpen className="h-3.5 w-3.5 shrink-0" />
+              <span>Documentation</span>
+            </NavLink>
+            {isAdmin && (
+              <NavLink to="/admin" end className={`${linkClass} text-xs`} activeClassName={activeClass}>
+                <Shield className="h-3.5 w-3.5 shrink-0" />
+                <span>Administration</span>
+              </NavLink>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
 
         <Button
           variant="ghost"

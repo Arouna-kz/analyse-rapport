@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Trash2, Download, Loader2 } from 'lucide-react';
+import { Trash2, Download, Loader2, Pencil, Check, X } from 'lucide-react';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { saveAs } from 'file-saver';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +23,7 @@ interface ReportActionsProps {
   reportTitle: string;
   filePath?: string | null;
   onDelete?: () => void;
+  onRename?: (newTitle: string) => void;
   size?: 'sm' | 'default' | 'lg' | 'icon';
 }
 
@@ -28,30 +32,29 @@ export const ReportActions = ({
   reportTitle,
   filePath,
   onDelete,
+  onRename,
   size = 'sm'
 }: ReportActionsProps) => {
   const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [newTitle, setNewTitle] = useState(reportTitle);
   const { toast } = useToast();
 
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      // Delete related data first
       await supabase.from('report_analyses').delete().eq('report_id', reportId);
       await supabase.from('report_alerts').delete().eq('report_id', reportId);
       await supabase.from('report_embeddings').delete().eq('report_id', reportId);
       await supabase.from('report_validations').delete().eq('report_id', reportId);
       await supabase.from('report_versions').delete().eq('report_id', reportId);
       
-      // Delete the file from storage if exists
       if (filePath) {
         await supabase.storage.from('reports').remove([filePath]);
       }
       
-      // Delete the report
       const { error } = await supabase.from('reports').delete().eq('id', reportId);
-      
       if (error) throw error;
       
       toast({
@@ -72,84 +75,174 @@ export const ReportActions = ({
     }
   };
 
+  const convertMarkdownToDocx = async (mdContent: string, fileName: string) => {
+    const lines = mdContent.split('\n');
+    const paragraphs: Paragraph[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        paragraphs.push(new Paragraph({ children: [] }));
+        continue;
+      }
+      if (trimmed.startsWith('### ')) {
+        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_3, children: [new TextRun({ text: trimmed.slice(4), bold: true, font: 'Calibri', size: 26 })] }));
+      } else if (trimmed.startsWith('## ')) {
+        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun({ text: trimmed.slice(3), bold: true, font: 'Calibri', size: 30 })] }));
+      } else if (trimmed.startsWith('# ')) {
+        paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: trimmed.slice(2), bold: true, font: 'Calibri', size: 36 })] }));
+      } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        const text = trimmed.slice(2).replace(/\*\*([^*]+)\*\*/g, '$1');
+        paragraphs.push(new Paragraph({ children: [new TextRun({ text: `• ${text}`, font: 'Calibri', size: 22 })], indent: { left: 720 } }));
+      } else {
+        const cleanText = trimmed.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
+        paragraphs.push(new Paragraph({ children: [new TextRun({ text: cleanText, font: 'Calibri', size: 22 })], spacing: { after: 120 } }));
+      }
+    }
+
+    const doc = new Document({
+      sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } }, children: paragraphs }],
+    });
+
+    const buffer = await Packer.toBlob(doc);
+    saveAs(buffer, fileName.replace(/\.md$/, '.docx'));
+  };
+
   const handleDownload = async () => {
     if (!filePath) {
-      toast({
-        title: "Fichier non disponible",
-        description: "Ce rapport n'a pas de fichier source associé",
-        variant: "destructive",
-      });
+      toast({ title: "Fichier non disponible", description: "Ce rapport n'a pas de fichier source associé", variant: "destructive" });
       return;
     }
 
     setDownloading(true);
     try {
-      const { data, error } = await supabase.storage
-        .from('reports')
-        .download(filePath);
-
+      const { data, error } = await supabase.storage.from('reports').download(filePath);
       if (error) throw error;
 
-      // Create download link
-      const url = URL.createObjectURL(data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filePath.split('/').pop() || 'report';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const originalName = filePath.split('/').pop() || 'report';
 
-      toast({
-        title: "Téléchargement réussi",
-        description: "Le fichier a été téléchargé",
-      });
+      if (originalName.endsWith('.md')) {
+        const textContent = await data.text();
+        await convertMarkdownToDocx(textContent, originalName);
+      } else {
+        const url = URL.createObjectURL(data);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = originalName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      toast({ title: "Téléchargement réussi", description: "Le fichier a été téléchargé" });
     } catch (error: any) {
       console.error('Download error:', error);
-      toast({
-        title: "Erreur",
-        description: error.message || "Impossible de télécharger le fichier",
-        variant: "destructive",
-      });
+      toast({ title: "Erreur", description: error.message || "Impossible de télécharger le fichier", variant: "destructive" });
     } finally {
       setDownloading(false);
     }
   };
 
+  const handleRename = async () => {
+    if (!newTitle.trim() || newTitle === reportTitle) {
+      setRenaming(false);
+      setNewTitle(reportTitle);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('reports')
+        .update({ title: newTitle.trim() })
+        .eq('id', reportId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Rapport renommé",
+        description: `Le rapport a été renommé en "${newTitle.trim()}"`,
+      });
+
+      onRename?.(newTitle.trim());
+      setRenaming(false);
+    } catch (error: any) {
+      console.error('Rename error:', error);
+      toast({
+        title: "Erreur",
+        description: error.message || "Impossible de renommer le rapport",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (renaming) {
+    return (
+      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <Input
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          className="h-7 text-sm w-48"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleRename();
+            if (e.key === 'Escape') { setRenaming(false); setNewTitle(reportTitle); }
+          }}
+        />
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRename}>
+          <Check className="h-3.5 w-3.5 text-emerald-600" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setRenaming(false); setNewTitle(reportTitle); }}>
+          <X className="h-3.5 w-3.5 text-destructive" />
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7"
+        onClick={(e) => { e.stopPropagation(); setRenaming(true); }}
+        title="Renommer"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
+
       {filePath && (
         <Button
-          variant="outline"
-          size={size}
-          onClick={handleDownload}
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={(e) => { e.stopPropagation(); handleDownload(); }}
           disabled={downloading}
-          title="Télécharger le fichier source"
+          title="Télécharger"
         >
           {downloading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
-            <Download className="h-4 w-4" />
+            <Download className="h-3.5 w-3.5" />
           )}
-          {size !== 'icon' && <span className="ml-2 hidden sm:inline">Télécharger</span>}
         </Button>
       )}
       
       <AlertDialog>
         <AlertDialogTrigger asChild>
           <Button
-            variant="outline"
-            size={size}
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
             disabled={deleting}
-            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-            title="Supprimer le rapport"
+            title="Supprimer"
+            onClick={(e) => e.stopPropagation()}
           >
             {deleting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-3.5 w-3.5" />
             )}
-            {size !== 'icon' && <span className="ml-2 hidden sm:inline">Supprimer</span>}
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent>
