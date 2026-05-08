@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { FileText, Upload as UploadIcon, Loader2, ArrowLeft, Cpu } from 'lucide-react';
-import { useArenaConfig } from '@/hooks/useArenaConfig';
+
 
 const Upload = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -17,7 +17,6 @@ const Upload = () => {
   const [useArena, setUseArena] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { getEnabledModels } = useArenaConfig();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -106,25 +105,8 @@ const Upload = () => {
 
       toast({
         title: "Rapport téléchargé !",
-        description: "L'analyse commencera sous peu",
+        description: "Cliquez sur « Démarrer l'analyse » dans le tableau de bord pour lancer le traitement.",
       });
-
-      if (insertedReport) {
-        const enabledModels = getEnabledModels();
-        supabase.functions
-          .invoke('analyze-report', {
-            body: { 
-              reportId: insertedReport.id,
-              useArena,
-              models: useArena ? enabledModels.map(m => ({ id: m.id, name: m.name, baseUrl: m.baseUrl, isLovableAI: m.isLovableAI })) : undefined
-            }
-          })
-          .then(({ error: analysisError }) => {
-            if (analysisError) {
-              console.error('Analysis error:', analysisError);
-            }
-          });
-      }
 
       navigate('/dashboard');
     } catch (error: any) {
@@ -188,7 +170,7 @@ const Upload = () => {
                       Mode Arena (Multi-modèles)
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      {useArena ? `${getEnabledModels().length} modèles IA pour une analyse par consensus` : 'Analyse standard avec un seul modèle'}
+                      {useArena ? 'Plusieurs modèles IA pour une analyse par consensus' : 'Analyse standard avec un seul modèle'}
                     </p>
                   </div>
                 </div>

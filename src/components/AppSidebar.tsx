@@ -224,10 +224,6 @@ export function AppSidebar() {
             <NavLink to="/profile" end className={`${linkClass} text-xs`} activeClassName={activeClass}>
               <span>Mon profil</span>
             </NavLink>
-            <NavLink to="/arena-settings" end className={`${linkClass} text-xs`} activeClassName={activeClass}>
-              <Settings2 className="h-3.5 w-3.5 shrink-0" />
-              <span>Paramètres Arena</span>
-            </NavLink>
             <NavLink to="/documentation" end className={`${linkClass} text-xs`} activeClassName={activeClass}>
               <BookOpen className="h-3.5 w-3.5 shrink-0" />
               <span>Documentation</span>

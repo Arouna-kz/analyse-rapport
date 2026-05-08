@@ -12,6 +12,7 @@ import { FileText, Loader2, ArrowLeft } from 'lucide-react';
 const Auth = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const navigate = useNavigate();
@@ -50,10 +51,19 @@ const Auth = () => {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!email || !password) {
+    if (!email || !password || !confirmPassword) {
       toast({
         title: "Erreur",
         description: "Veuillez remplir tous les champs",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      toast({
+        title: "Erreur",
+        description: "Les mots de passe ne correspondent pas",
         variant: "destructive",
       });
       return;
@@ -268,6 +278,17 @@ const Auth = () => {
                     <p className="text-xs text-muted-foreground">
                       Minimum 6 caractères
                     </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password-signup">Confirmer le mot de passe</Label>
+                    <Input
+                      id="confirm-password-signup"
+                      type="password"
+                      placeholder="••••••••"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      disabled={loading}
+                    />
                   </div>
                   <Button type="submit" className="w-full" disabled={loading}>
                     {loading ? (

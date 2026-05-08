@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, Upload, FileText, Database, Loader2, Sparkles, Zap, Settings2, X, Plus, Download, Eye } from "lucide-react";
-import { useArenaConfig } from "@/hooks/useArenaConfig";
+
 import { Badge } from "@/components/ui/badge";
 import ReactMarkdown from "react-markdown";
 import { ReportExportButtons } from "@/components/ReportExportButtons";
@@ -33,7 +33,7 @@ interface DataFile {
 const GenerateFromTemplate = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { config, getEnabledModels } = useArenaConfig();
+  
   
   const [dataFiles, setDataFiles] = useState<DataFile[]>([]);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
@@ -221,20 +221,17 @@ const GenerateFromTemplate = () => {
         if (templateUploadError) throw templateUploadError;
       }
 
-      // Call edge function
-      const enabledModels = getEnabledModels();
-      
+      // Call edge function (admin-configured Arena providers used server-side)
       const response = await supabase.functions.invoke('generate-from-template', {
         body: {
-          dataFilePaths, // Array of paths (can be empty)
-          dataFilePath: dataFilePaths[0] || null, // Keep backward compatibility
+          dataFilePaths,
+          dataFilePath: dataFilePaths[0] || null,
           templateFilePath,
           templateSource,
           selectedReportIds: templateSource === "database" ? selectedReports : [],
           reportTitle,
           additionalInstructions,
           useArena: useArenaMode,
-          models: useArenaMode ? enabledModels : undefined,
         },
       });
 
@@ -289,7 +286,7 @@ const GenerateFromTemplate = () => {
               </h1>
               <p className="text-muted-foreground text-sm">
                 {useArenaMode 
-                  ? `Création par consensus multi-modèles (${getEnabledModels().length} modèles)`
+                  ? 'Création par consensus multi-modèles configuré par l\'admin'
                   : 'Créez un rapport professionnel à partir de vos données'
                 }
               </p>
@@ -309,10 +306,6 @@ const GenerateFromTemplate = () => {
                 onCheckedChange={setUseArenaMode}
               />
             </div>
-            <Button variant="outline" size="sm" onClick={() => navigate('/arena-settings')}>
-              <Settings2 className="h-4 w-4 mr-2" />
-              Config
-            </Button>
           </div>
         </div>
       </header>

@@ -258,14 +258,26 @@ export const ConversationSidebar = ({
 
   if (!isOpen) {
     return (
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onToggle}
-        className="fixed left-2 top-20 z-50 bg-card border shadow-md"
-      >
-        <ChevronRight className="h-4 w-4" />
-      </Button>
+      <div className="shrink-0 border-r bg-card flex flex-col items-center py-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggle}
+          title="Afficher les conversations"
+          className="h-9 w-9"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onNewConversation}
+          title="Nouvelle conversation"
+          className="h-9 w-9 mt-1"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
     );
   }
 

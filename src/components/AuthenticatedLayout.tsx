@@ -3,6 +3,7 @@ import { useNavigate, Outlet } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
+import { ApprovalGate } from '@/components/ApprovalGate';
 import { Loader2 } from 'lucide-react';
 
 export function AuthenticatedLayout() {
@@ -40,18 +41,20 @@ export function AuthenticatedLayout() {
   if (!authenticated) return null;
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-12 flex items-center border-b bg-card/80 backdrop-blur-sm sticky top-0 z-40 px-4">
-            <SidebarTrigger />
-          </header>
-          <main className="flex-1 overflow-auto">
-            <Outlet />
-          </main>
+    <ApprovalGate>
+      <SidebarProvider>
+        <div className="min-h-screen flex w-full">
+          <AppSidebar />
+          <div className="flex-1 flex flex-col min-w-0">
+            <header className="h-12 flex items-center border-b bg-card/80 backdrop-blur-sm sticky top-0 z-40 px-4">
+              <SidebarTrigger />
+            </header>
+            <main className="flex-1 overflow-auto">
+              <Outlet />
+            </main>
+          </div>
         </div>
-      </div>
-    </SidebarProvider>
+      </SidebarProvider>
+    </ApprovalGate>
   );
 }

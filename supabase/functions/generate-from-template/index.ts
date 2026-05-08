@@ -2,6 +2,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
 import { callAI, getAIProviderConfig, translateModel, MODEL_API_NAMES, handleAIError } from '../_shared/ai-provider.ts';
+import { mergeAdminArenaProviders, filterCallableModels } from '../_shared/arena-providers.ts';
 
 // Note: dataFilePaths is now optional - can generate from template alone
 
@@ -13,10 +14,12 @@ const corsHeaders = {
 interface AIModel {
   id: string;
   name: string;
-  enabled: boolean;
+  enabled?: boolean;
   isLovableAI: boolean;
   baseUrl?: string;
   apiKey?: string;
+  modelName?: string;
+  provider?: string;
 }
 
 interface ModelResponse {
@@ -59,14 +62,20 @@ async function queryModel(
           temperature: 0.7,
         }),
       });
-    } else if (model.baseUrl && model.apiKey) {
-      response = await fetch(`${model.baseUrl}/v1/chat/completions`, {
+    } else if (model.baseUrl) {
+      const apiKey = model.apiKey || (model.provider === 'ollama' ? 'ollama' : '');
+      if (!apiKey) throw new Error('Missing API key');
+      const url = model.baseUrl.includes('/chat/completions')
+        ? model.baseUrl
+        : `${model.baseUrl.replace(/\/+$/, '')}/v1/chat/completions`;
+      response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${model.apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          model: model.modelName || model.id,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt }
@@ -462,10 +471,11 @@ IMPORTANT: Le rapport doit être substantiel, professionnel et exploitable. Chaq
     let aiContent: string;
     let arenaDetails: any = null;
 
-    // Arena mode: query multiple models and synthesize
-    if (useArena && models && models.length > 0) {
-      const enabledModels = models.filter((m: AIModel) => m.enabled);
-      
+    // Arena mode: query multiple models and synthesize (merge user + admin providers)
+    if (useArena) {
+      const merged = await mergeAdminArenaProviders((models || []) as AIModel[]);
+      const enabledModels = filterCallableModels(merged) as AIModel[];
+
       if (enabledModels.length > 0) {
         // Query all models in parallel
         const modelResponses = await Promise.all(

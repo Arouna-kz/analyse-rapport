@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
-import { getAIProviderConfig, translateModel, MODEL_API_NAMES } from '../_shared/ai-provider.ts';
+import { getAIProviderConfig, MODEL_API_NAMES } from '../_shared/ai-provider.ts';
+import { mergeAdminArenaProviders, filterCallableModels } from '../_shared/arena-providers.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,9 +12,11 @@ const corsHeaders = {
 interface AIModel {
   id: string;
   name: string;
+  provider: string;
   baseUrl: string;
-  isLovableAI: boolean;
+  modelName?: string;
   apiKey?: string;
+  isLovableAI: boolean;
 }
 
 interface ModelResponse {
@@ -26,133 +29,80 @@ interface ModelResponse {
   errorMessage?: string;
 }
 
+function resolveModelEndpoint(model: AIModel): { url: string; apiKey: string; modelName: string } {
+  const globalConfig = getAIProviderConfig();
+
+  // Lovable AI models always use the gateway
+  if (model.isLovableAI) {
+    const modelName = model.modelName || MODEL_API_NAMES[model.id] || 'google/gemini-2.5-flash';
+    return {
+      url: globalConfig.baseUrl,
+      apiKey: globalConfig.apiKey,
+      modelName,
+    };
+  }
+
+  // Per-model configuration: each model has its own endpoint, key, and model name
+  const url = model.baseUrl;
+  const apiKey = model.apiKey || (model.provider === 'ollama' ? 'ollama' : '');
+  const modelName = model.modelName || model.id;
+
+  return { url, apiKey, modelName };
+}
+
 async function queryModel(
   model: AIModel,
   prompt: string,
   systemPrompt: string,
-  lovableApiKey: string,
   images?: string[],
   conversationHistory?: { role: string; content: string }[]
 ): Promise<ModelResponse> {
   const startTime = Date.now();
   
   try {
-    const config = getAIProviderConfig();
-    const apiKey = model.isLovableAI ? config.apiKey : model.apiKey;
-    const baseUrl = model.isLovableAI 
-      ? config.baseUrl 
-      : model.baseUrl;
-    
-    if (!apiKey || !baseUrl) {
-      throw new Error('Missing API key or base URL');
-    }
+    const { url, apiKey, modelName } = resolveModelEndpoint(model);
 
-    const rawModelName = MODEL_API_NAMES[model.id] || model.id;
-    const modelName = model.isLovableAI ? translateModel(rawModelName) : rawModelName;
-    
-    // Build messages array
-    const messages: any[] = [
-      { role: 'system', content: systemPrompt }
-    ];
+    if (!url) throw new Error('Missing endpoint URL');
+    if (!apiKey) throw new Error('Missing API key');
 
-    // Add conversation history for context
-    if (conversationHistory && Array.isArray(conversationHistory)) {
-      messages.push(...conversationHistory);
-    }
+    const messages: any[] = [{ role: 'system', content: systemPrompt }];
+    if (conversationHistory?.length) messages.push(...conversationHistory);
 
-    // Build user message content (with images if provided)
-    if (images && images.length > 0) {
+    if (images?.length) {
       const content: any[] = [{ type: 'text', text: prompt }];
-      for (const imageData of images) {
-        content.push({
-          type: 'image_url',
-          image_url: { url: imageData }
-        });
+      for (const img of images) {
+        content.push({ type: 'image_url', image_url: { url: img } });
       }
       messages.push({ role: 'user', content });
     } else {
       messages.push({ role: 'user', content: prompt });
     }
-    
-    const response = await fetch(baseUrl, {
+
+    const doFetch = () => fetch(url, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages,
-        temperature: 0.7,
-      }),
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelName, messages, temperature: 0.7 }),
     });
 
+    let response = await doFetch();
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Model ${model.name} error (attempt 1):`, response.status, errorText);
-      
-      // Retry once after a short delay
+      console.error(`Model ${model.name} error (attempt 1):`, response.status);
       await new Promise(r => setTimeout(r, 1000));
-      const retryResponse = await fetch(baseUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages,
-          temperature: 0.7,
-        }),
-      });
-      
-      if (!retryResponse.ok) {
-        const retryErrorText = await retryResponse.text();
-        console.error(`Model ${model.name} error (attempt 2):`, retryResponse.status, retryErrorText);
-        throw new Error(`API error: ${retryResponse.status}`);
-      }
-      
-      const retryData = await retryResponse.json();
-      const retryContent = retryData.choices?.[0]?.message?.content || '';
-      const processingTime = Date.now() - startTime;
-      const confidence = Math.min(0.95, 0.5 + (retryContent.length / 2000) * 0.3 + 0.15);
-      
-      return {
-        modelId: model.id,
-        modelName: model.name,
-        response: retryContent,
-        confidence,
-        processingTime,
-        status: 'success'
-      };
+      response = await doFetch();
+      if (!response.ok) throw new Error(`API error: ${response.status}`);
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     const processingTime = Date.now() - startTime;
-
-    // Estimate confidence based on response length and structure
     const confidence = Math.min(0.95, 0.5 + (content.length / 2000) * 0.3 + 0.15);
 
-    return {
-      modelId: model.id,
-      modelName: model.name,
-      response: content,
-      confidence,
-      processingTime,
-      status: 'success'
-    };
+    return { modelId: model.id, modelName: model.name, response: content, confidence, processingTime, status: 'success' };
   } catch (error) {
-    const processingTime = Date.now() - startTime;
     console.error(`Error querying ${model.name}:`, error);
-    
     return {
-      modelId: model.id,
-      modelName: model.name,
-      response: '',
-      confidence: 0,
-      processingTime,
-      status: 'error',
+      modelId: model.id, modelName: model.name, response: '', confidence: 0,
+      processingTime: Date.now() - startTime, status: 'error',
       errorMessage: error instanceof Error ? error.message : 'Unknown error'
     };
   }
@@ -161,36 +111,18 @@ async function queryModel(
 async function synthesizeResponses(
   responses: ModelResponse[],
   judgeModel: AIModel,
-  originalPrompt: string,
-  lovableApiKey: string
-): Promise<{
-  goldResponse: string;
-  consensusScore: number;
-  hallucinations: string[];
-  synthesisNotes: string;
-}> {
-  const successfulResponses = responses.filter(r => r.status === 'success');
+  originalPrompt: string
+): Promise<{ goldResponse: string; consensusScore: number; hallucinations: string[]; synthesisNotes: string }> {
+  const successful = responses.filter(r => r.status === 'success');
   
-  if (successfulResponses.length === 0) {
-    return {
-      goldResponse: 'Aucun modèle n\'a pu générer une réponse valide.',
-      consensusScore: 0,
-      hallucinations: [],
-      synthesisNotes: 'Échec de tous les modèles'
-    };
+  if (successful.length === 0) {
+    return { goldResponse: 'Aucun modèle n\'a pu générer une réponse valide.', consensusScore: 0, hallucinations: [], synthesisNotes: 'Échec de tous les modèles' };
+  }
+  if (successful.length === 1) {
+    return { goldResponse: successful[0].response, consensusScore: successful[0].confidence, hallucinations: [], synthesisNotes: `Réponse unique de ${successful[0].modelName}` };
   }
 
-  if (successfulResponses.length === 1) {
-    return {
-      goldResponse: successfulResponses[0].response,
-      consensusScore: successfulResponses[0].confidence,
-      hallucinations: [],
-      synthesisNotes: `Réponse unique de ${successfulResponses[0].modelName}`
-    };
-  }
-
-  // Build synthesis prompt
-  const responseSummaries = successfulResponses.map((r, i) => 
+  const summaries = successful.map((r, i) => 
     `=== RÉPONSE DU MODÈLE ${i + 1} (${r.modelName}, confiance: ${(r.confidence * 100).toFixed(0)}%) ===\n${r.response}\n`
   ).join('\n');
 
@@ -200,73 +132,48 @@ QUESTION ORIGINALE:
 ${originalPrompt}
 
 RÉPONSES DES MODÈLES:
-${responseSummaries}
+${summaries}
 
 Ta mission:
 1. Analyser toutes les réponses pour identifier les points de consensus
-2. Détecter les hallucinations ou incohérences (informations contradictoires ou non vérifiables)
+2. Détecter les hallucinations ou incohérences
 3. Fusionner les meilleures idées de chaque réponse
 4. Produire une "Réponse Gold" optimale
 
-Réponds en JSON avec cette structure:
+Réponds en JSON:
 {
   "goldResponse": "La réponse synthétisée optimale",
   "consensusScore": 0.0-1.0,
-  "hallucinations": ["description de chaque hallucination détectée"],
+  "hallucinations": ["description de chaque hallucination"],
   "synthesisNotes": "Notes sur le processus de synthèse"
 }`;
 
   try {
-    const judgeConfig = getAIProviderConfig();
-    const judgeApiKey = judgeModel.isLovableAI ? judgeConfig.apiKey : judgeModel.apiKey;
-    const judgeBaseUrl = judgeModel.isLovableAI 
-      ? judgeConfig.baseUrl 
-      : judgeModel.baseUrl;
-    
-    const rawJudgeModelName = MODEL_API_NAMES[judgeModel.id] || judgeModel.id;
-    const modelName = judgeModel.isLovableAI ? translateModel(rawJudgeModelName) : rawJudgeModelName;
+    const { url, apiKey, modelName } = resolveModelEndpoint(judgeModel);
 
-    const response = await fetch(judgeBaseUrl, {
+    const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${judgeApiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: modelName,
         messages: [
-          { 
-            role: 'system', 
-            content: 'Tu es un juge expert en IA. Tu analyses les réponses de plusieurs modèles pour produire une synthèse optimale. Réponds uniquement en JSON valide.' 
-          },
+          { role: 'system', content: 'Tu es un juge expert en IA. Tu analyses les réponses de plusieurs modèles pour produire une synthèse optimale. Réponds uniquement en JSON valide.' },
           { role: 'user', content: synthesisPrompt }
         ],
       }),
     });
 
-    if (!response.ok) {
-      throw new Error('Judge model failed');
-    }
+    if (!response.ok) throw new Error('Judge model failed');
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
 
-    // Parse JSON response
     let result;
     try {
-      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || 
-                       content.match(/```\n([\s\S]*?)\n```/) ||
-                       content.match(/\{[\s\S]*\}/);
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
-      result = JSON.parse(jsonStr);
-    } catch (e) {
-      // If JSON parsing fails, use the content as is
-      result = {
-        goldResponse: content,
-        consensusScore: 0.75,
-        hallucinations: [],
-        synthesisNotes: 'Synthèse effectuée'
-      };
+      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/) || content.match(/\{[\s\S]*\}/);
+      result = JSON.parse(jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content);
+    } catch {
+      result = { goldResponse: content, consensusScore: 0.75, hallucinations: [], synthesisNotes: 'Synthèse effectuée' };
     }
 
     return {
@@ -275,138 +182,76 @@ Réponds en JSON avec cette structure:
       hallucinations: result.hallucinations || [],
       synthesisNotes: result.synthesisNotes || 'Synthèse effectuée'
     };
-
   } catch (error) {
     console.error('Synthesis error:', error);
-    
-    // Fallback: use the best response by confidence
-    const bestResponse = successfulResponses.sort((a, b) => b.confidence - a.confidence)[0];
-    return {
-      goldResponse: bestResponse.response,
-      consensusScore: bestResponse.confidence,
-      hallucinations: [],
-      synthesisNotes: `Fallback vers ${bestResponse.modelName} (échec de la synthèse)`
-    };
+    const best = successful.sort((a, b) => b.confidence - a.confidence)[0];
+    return { goldResponse: best.response, consensusScore: best.confidence, hallucinations: [], synthesisNotes: `Fallback vers ${best.modelName}` };
   }
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(
-        JSON.stringify({ error: 'Authentication required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabaseClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
     const token = authHeader.replace('Bearer ', '');
     const { data: claimsData, error: authError } = await supabaseClient.auth.getClaims(token);
     if (authError || !claimsData?.claims) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid authentication' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'Invalid authentication' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    console.log('Arena: Authenticated user', claimsData.claims.sub);
-
-    const { 
-      prompt, 
-      systemPrompt = 'Tu es un assistant IA expert en analyse.',
-      models,
-      judgeModelId,
-      context,
-      images,
-      conversationHistory
-    } = await req.json();
+    const { prompt, systemPrompt = 'Tu es un assistant IA expert en analyse.', models, judgeModelId, context, images, conversationHistory } = await req.json();
 
     if (!prompt) {
-      return new Response(
-        JSON.stringify({ error: 'Prompt is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const arenaConfig = getAIProviderConfig();
-    const lovableApiKey = arenaConfig.apiKey;
-    if (!lovableApiKey) {
-      throw new Error('LOVABLE_API_KEY not configured');
+      return new Response(JSON.stringify({ error: 'Prompt is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const startTime = Date.now();
 
-    // Filter enabled models
-    const enabledModels: AIModel[] = (models || []).filter((m: AIModel) => 
-      m.isLovableAI || (m.baseUrl && m.apiKey)
-    );
+    // Merge user-selected models with admin-configured providers from DB,
+    // then filter to only models that can actually be called.
+    const mergedModels = await mergeAdminArenaProviders((models || []) as AIModel[]);
+    const enabledModels: AIModel[] = filterCallableModels(mergedModels) as AIModel[];
 
-    // If no models configured, use default Lovable AI models
     if (enabledModels.length === 0) {
       enabledModels.push(
-        { id: 'lovable-gemini-pro', name: 'Gemini 2.5 Pro', baseUrl: '', isLovableAI: true },
-        { id: 'lovable-gemini-flash', name: 'Gemini 2.5 Flash', baseUrl: '', isLovableAI: true }
+        { id: 'lovable-gemini-pro', name: 'Gemini 2.5 Pro', provider: 'lovable', baseUrl: '', modelName: 'google/gemini-2.5-pro', isLovableAI: true },
+        { id: 'lovable-gemini-flash', name: 'Gemini 2.5 Flash', provider: 'lovable', baseUrl: '', modelName: 'google/gemini-2.5-flash', isLovableAI: true }
       );
     }
 
-    console.log(`Arena: Querying ${enabledModels.length} models in parallel`);
+    console.log(`Arena: Querying ${enabledModels.length} models from ${new Set(enabledModels.map(m => m.provider)).size} providers`);
 
-    // Enrich prompt with context if provided
-    const enrichedPrompt = context 
-      ? `Contexte:\n${context}\n\nQuestion/Tâche:\n${prompt}`
-      : prompt;
+    const enrichedPrompt = context ? `Contexte:\n${context}\n\nQuestion/Tâche:\n${prompt}` : prompt;
 
-    // Phase 1: Query all models in parallel (with images and history support)
     const modelResponses = await Promise.all(
-      enabledModels.map(model => queryModel(model, enrichedPrompt, systemPrompt, lovableApiKey, images, conversationHistory))
+      enabledModels.map(model => queryModel(model, enrichedPrompt, systemPrompt, images, conversationHistory))
     );
 
-    console.log(`Arena: Received ${modelResponses.filter(r => r.status === 'success').length} successful responses`);
+    console.log(`Arena: ${modelResponses.filter(r => r.status === 'success').length}/${modelResponses.length} successful`);
 
-    // Phase 2 & 3: Synthesize responses using judge model
     const judgeModel = enabledModels.find(m => m.id === judgeModelId) || 
-      enabledModels.find(m => m.isLovableAI && m.id.includes('gemini-pro')) ||
-      enabledModels[0];
+      enabledModels.find(m => m.isLovableAI && m.id.includes('gemini-pro')) || enabledModels[0];
 
-    const synthesis = await synthesizeResponses(
-      modelResponses, 
-      judgeModel, 
-      enrichedPrompt, 
-      lovableApiKey
-    );
-
+    const synthesis = await synthesizeResponses(modelResponses, judgeModel, enrichedPrompt);
     const totalTime = Date.now() - startTime;
 
-    console.log(`Arena: Completed in ${totalTime}ms with consensus ${(synthesis.consensusScore * 100).toFixed(0)}%`);
-
-    return new Response(
-      JSON.stringify({
-        goldResponse: synthesis.goldResponse,
-        modelResponses,
-        consensusScore: synthesis.consensusScore,
-        hallucinations: synthesis.hallucinations,
-        synthesisNotes: synthesis.synthesisNotes,
-        processingTime: totalTime
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({
+      goldResponse: synthesis.goldResponse,
+      modelResponses,
+      consensusScore: synthesis.consensusScore,
+      hallucinations: synthesis.hallucinations,
+      synthesisNotes: synthesis.synthesisNotes,
+      processingTime: totalTime
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
     console.error('Arena error:', error);
-    return new Response(
-      JSON.stringify({ 
-        error: 'An error occurred processing the arena request'
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ error: 'An error occurred processing the arena request' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

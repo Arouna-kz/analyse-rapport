@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Upload, Loader2, BarChart3, TrendingUp, FileCheck, RefreshCw, Search, CalendarIcon, ArrowUp, ArrowDown, Wand2, Sparkles } from 'lucide-react';
+import { FileText, Upload, Loader2, BarChart3, TrendingUp, FileCheck, RefreshCw, Search, CalendarIcon, ArrowUp, ArrowDown, Wand2, Sparkles, Play } from 'lucide-react';
 import { ReportActions } from '@/components/ReportActions';
 import { format, isAfter, isBefore, startOfDay, endOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -53,6 +53,35 @@ const Dashboard = () => {
   useEffect(() => {
     fetchReports();
   }, []);
+
+  // Realtime: auto-redirect to detail page when a freshly-imported report finishes
+  useEffect(() => {
+    const channel = supabase
+      .channel('dashboard-reports')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'reports' },
+        (payload: any) => {
+          const updated = payload.new;
+          setReports(prev => prev.map(r => r.id === updated.id ? { ...r, status: updated.status } : r));
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const handleStartAnalysis = async (reportId: string) => {
+    setReanalyzing(reportId);
+    try {
+      await supabase.from('reports').update({ status: 'processing' }).eq('id', reportId);
+      supabase.functions.invoke('analyze-report', { body: { reportId, useArena: true } });
+      navigate(`/report/${reportId}`);
+    } catch (error: any) {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    } finally {
+      setReanalyzing(null);
+    }
+  };
 
   const fetchReports = async () => {
     setLoading(false);
@@ -304,6 +333,26 @@ const Dashboard = () => {
                             <span className="truncate">{report.title}</span>
                             <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                               {getStatusBadge(report.status)}
+                              {report.status === 'pending' && (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStartAnalysis(report.id);
+                                  }}
+                                  disabled={reanalyzing === report.id}
+                                  className="h-7 px-2 text-xs gap-1"
+                                  title="Démarrer l'analyse"
+                                >
+                                  {reanalyzing === report.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Play className="h-3 w-3" />
+                                  )}
+                                  <span className="hidden sm:inline">Démarrer l'analyse</span>
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
 import { callAI, getAIProviderConfig, translateModel, MODEL_API_NAMES, handleAIError } from '../_shared/ai-provider.ts';
+import { mergeAdminArenaProviders, filterCallableModels } from '../_shared/arena-providers.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,10 +11,12 @@ const corsHeaders = {
 interface AIModel {
   id: string;
   name: string;
-  enabled: boolean;
+  enabled?: boolean;
   isLovableAI: boolean;
   baseUrl?: string;
   apiKey?: string;
+  modelName?: string;
+  provider?: string;
 }
 
 interface ModelResponse {
@@ -56,14 +59,21 @@ async function queryModel(
           temperature: 0.7,
         }),
       });
-    } else if (model.baseUrl && model.apiKey) {
-      response = await fetch(`${model.baseUrl}/v1/chat/completions`, {
+    } else if (model.baseUrl) {
+      const apiKey = model.apiKey || (model.provider === 'ollama' ? 'ollama' : '');
+      if (!apiKey) throw new Error('Missing API key');
+      // baseUrl is expected to already be a full chat/completions endpoint
+      const url = model.baseUrl.includes('/chat/completions')
+        ? model.baseUrl
+        : `${model.baseUrl.replace(/\/+$/, '')}/v1/chat/completions`;
+      response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${model.apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          model: model.modelName || model.id,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt }
@@ -223,9 +233,20 @@ KPIs: ${JSON.stringify(analysis?.kpis || {})}
     const scenarios = ['optimistic', 'realistic', 'pessimistic'];
     
     // Arena mode: query multiple models and synthesize
-    if (useArena && models && models.length > 0) {
-      const enabledModels = models.filter((m: AIModel) => m.enabled);
-      
+    if (useArena) {
+      // Merge user-selected models with admin-configured providers from DB
+      const merged = await mergeAdminArenaProviders((models || []) as AIModel[]);
+      const enabledModels = filterCallableModels(merged) as AIModel[];
+
+      if (enabledModels.length === 0) {
+        enabledModels.push(
+          { id: 'lovable-gemini-pro', name: 'Gemini 2.5 Pro', provider: 'lovable', baseUrl: '', modelName: 'google/gemini-2.5-pro', isLovableAI: true } as any,
+          { id: 'lovable-gemini-flash', name: 'Gemini 2.5 Flash', provider: 'lovable', baseUrl: '', modelName: 'google/gemini-2.5-flash', isLovableAI: true } as any,
+        );
+      }
+
+      console.log(`Arena predictions: using ${enabledModels.length} model(s)`);
+
       const predictions = await Promise.all(
         scenarios.map(async (scenarioType) => {
           const systemPrompt = 'Tu es un expert en analyse prédictive. Réponds uniquement en JSON valide.';

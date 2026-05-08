@@ -39,7 +39,15 @@ export type Database = {
           updated_at?: string | null
           updated_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_config_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "admin_users_view"
+            referencedColumns: ["user_id"]
+          },
+        ]
       }
       ai_usage_logs: {
         Row: {
@@ -86,6 +94,63 @@ export type Database = {
           status?: string
           total_tokens?: number | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      arena_providers: {
+        Row: {
+          api_key: string | null
+          base_url: string
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          id: string
+          last_test_at: string | null
+          last_test_latency_ms: number | null
+          last_test_message: string | null
+          last_test_status: string | null
+          model_name: string
+          name: string
+          priority: number
+          provider_type: string
+          role_description: string | null
+          updated_at: string
+        }
+        Insert: {
+          api_key?: string | null
+          base_url: string
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          last_test_at?: string | null
+          last_test_latency_ms?: number | null
+          last_test_message?: string | null
+          last_test_status?: string | null
+          model_name: string
+          name: string
+          priority?: number
+          provider_type: string
+          role_description?: string | null
+          updated_at?: string
+        }
+        Update: {
+          api_key?: string | null
+          base_url?: string
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          last_test_at?: string | null
+          last_test_latency_ms?: number | null
+          last_test_message?: string | null
+          last_test_status?: string | null
+          model_name?: string
+          name?: string
+          priority?: number
+          provider_type?: string
+          role_description?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -726,6 +791,36 @@ export type Database = {
         }
         Relationships: []
       }
+      user_access: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          id: string
+          is_approved: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          id?: string
+          is_approved?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          id?: string
+          is_approved?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           expires_at: string | null
@@ -758,9 +853,99 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      admin_users_view: {
+        Row: {
+          approved_at: string | null
+          company: string | null
+          display_name: string | null
+          email: string | null
+          full_name: string | null
+          is_admin: boolean | null
+          is_approved: boolean | null
+          is_super_admin: boolean | null
+          job_title: string | null
+          last_sign_in_at: string | null
+          signed_up_at: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      admin_delete_arena_provider: { Args: { _id: string }; Returns: undefined }
+      admin_delete_user: {
+        Args: { _target_user_id: string }
+        Returns: undefined
+      }
+      admin_list_arena_providers: {
+        Args: never
+        Returns: {
+          api_key_masked: string
+          base_url: string
+          created_at: string
+          enabled: boolean
+          has_api_key: boolean
+          id: string
+          last_test_at: string
+          last_test_latency_ms: number
+          last_test_message: string
+          last_test_status: string
+          model_name: string
+          name: string
+          priority: number
+          provider_type: string
+          role_description: string
+          updated_at: string
+        }[]
+      }
+      admin_list_users: {
+        Args: never
+        Returns: {
+          approved_at: string
+          company: string
+          display_name: string
+          email: string
+          full_name: string
+          is_admin: boolean
+          is_approved: boolean
+          is_super_admin: boolean
+          job_title: string
+          last_sign_in_at: string
+          signed_up_at: string
+          user_id: string
+        }[]
+      }
+      admin_record_arena_provider_test: {
+        Args: {
+          _id: string
+          _latency_ms: number
+          _message: string
+          _status: string
+        }
+        Returns: undefined
+      }
+      admin_set_user_approval: {
+        Args: { _approved: boolean; _target_user_id: string }
+        Returns: undefined
+      }
+      admin_set_user_role: {
+        Args: { _make_admin: boolean; _target_user_id: string }
+        Returns: undefined
+      }
+      admin_upsert_arena_provider: {
+        Args: {
+          _api_key: string
+          _base_url: string
+          _enabled: boolean
+          _id: string
+          _model_name: string
+          _name: string
+          _priority: number
+          _provider_type: string
+          _role_description: string
+        }
+        Returns: string
+      }
       detect_anomalies: {
         Args: { _kpi_name: string; _report_id: string; _threshold?: number }
         Returns: {
@@ -776,6 +961,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_user_approved: { Args: { _user_id: string }; Returns: boolean }
       search_similar_embeddings:
         | {
             Args: {

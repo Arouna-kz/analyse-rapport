@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
 import { callAI, getAIProviderConfig, translateModel, MODEL_API_NAMES } from '../_shared/ai-provider.ts';
+import { mergeAdminArenaProviders, filterCallableModels } from '../_shared/arena-providers.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -55,6 +56,8 @@ interface AIModel {
   baseUrl: string;
   isLovableAI: boolean;
   apiKey?: string;
+  modelName?: string;
+  provider?: string;
 }
 
 interface ModelResponse {
@@ -72,7 +75,7 @@ async function queryModelForAnalysis(
 ): Promise<ModelResponse> {
   try {
     const config = getAIProviderConfig();
-    const apiKey = model.isLovableAI ? config.apiKey : model.apiKey;
+    const apiKey = model.isLovableAI ? config.apiKey : (model.apiKey || (model.provider === 'ollama' ? 'ollama' : ''));
     const baseUrl = model.isLovableAI 
       ? config.baseUrl 
       : model.baseUrl;
@@ -81,7 +84,8 @@ async function queryModelForAnalysis(
       throw new Error('Missing API key or base URL');
     }
 
-    const rawModelName = MODEL_API_NAMES[model.id] || model.id;
+    // Prefer explicit modelName (from admin DB providers), fall back to MODEL_API_NAMES map, then id
+    const rawModelName = model.modelName || MODEL_API_NAMES[model.id] || model.id;
     const modelName = model.isLovableAI ? translateModel(rawModelName) : rawModelName;
     
     const response = await fetch(baseUrl, {
@@ -600,15 +604,18 @@ Réponds en format JSON avec cette structure:
     if (useArena) {
       // Use Arena multi-model consensus
       console.log('Using Arena multi-model analysis');
-      
-      // Default models for Arena
+
+      // Default Lovable models for Arena
       const defaultModels: AIModel[] = [
         { id: 'lovable-gemini-pro', name: 'Gemini 2.5 Pro', baseUrl: '', isLovableAI: true },
         { id: 'lovable-gemini-flash', name: 'Gemini 2.5 Flash', baseUrl: '', isLovableAI: true },
       ];
 
-      const models: AIModel[] = arenaModels?.filter((m: AIModel) => m.isLovableAI || (m.baseUrl && m.apiKey)) || defaultModels;
-      
+      // Merge user-selected models with admin-configured providers from DB
+      const merged = await mergeAdminArenaProviders((arenaModels || []) as AIModel[]);
+      const callable = filterCallableModels(merged) as AIModel[];
+      const models: AIModel[] = callable.length > 0 ? callable : defaultModels;
+
       console.log(`Arena: Querying ${models.length} models in parallel for analysis`);
 
       // Query all models in parallel
@@ -620,7 +627,7 @@ Réponds en format JSON avec cette structure:
 
       // Synthesize responses
       analysis = await synthesizeAnalyses(modelResponses, analysisPrompt, lovableApiKey);
-      
+
       // Add arena metadata
       analysis.arenaMetadata = {
         modelsUsed: modelResponses.map(r => ({ id: r.modelId, name: r.modelName, status: r.status, confidence: r.confidence })),

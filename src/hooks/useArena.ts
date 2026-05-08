@@ -50,11 +50,14 @@ export const useArena = (options: UseArenaOptions = {}) => {
     }, 100);
 
     try {
-      // Prepare models for the edge function
+      // Prepare models for the edge function - include per-model provider config
       const modelsPayload = enabledModels.map(m => ({
         id: m.id,
         name: m.name,
+        provider: m.provider,
         baseUrl: m.baseUrl,
+        modelName: m.modelName,
+        apiKey: m.apiKey,
         isLovableAI: m.isLovableAI
       }));
 

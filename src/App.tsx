@@ -15,7 +15,7 @@ import Alerts from "./pages/Alerts";
 import MultiScenarioPredictions from "./pages/MultiScenarioPredictions";
 import SharedPrediction from "./pages/SharedPrediction";
 import Documentation from "./pages/Documentation";
-import ArenaSettings from "./pages/ArenaSettings";
+
 import AdminPanel from "./pages/AdminPanel";
 import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
@@ -48,7 +48,7 @@ const App = () => (
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/predictions" element={<MultiScenarioPredictions />} />
             <Route path="/documentation" element={<Documentation />} />
-            <Route path="/arena-settings" element={<ArenaSettings />} />
+            
             <Route path="/admin" element={<AdminPanel />} />
             <Route path="/profile" element={<Profile />} />
           </Route>

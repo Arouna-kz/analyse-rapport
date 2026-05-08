@@ -8,8 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Shield, Save, Eye, EyeOff, Loader2, AlertTriangle, Activity, BarChart3, Clock, Zap, AlertCircle, CheckCircle2, TrendingUp, Download, FileText, Bell, Settings2, DollarSign, Mail, SendHorizonal } from 'lucide-react';
+import { ArrowLeft, Shield, Save, Eye, EyeOff, Loader2, AlertTriangle, Activity, BarChart3, Clock, Zap, AlertCircle, CheckCircle2, TrendingUp, Download, FileText, Bell, Settings2, DollarSign, Mail, SendHorizonal, Users } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { UsersManagement } from '@/components/admin/UsersManagement';
+import { ArenaProvidersManagement } from '@/components/admin/ArenaProvidersManagement';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend, Area, AreaChart } from 'recharts';
 import jsPDF from 'jspdf';
@@ -414,14 +416,29 @@ const AdminPanel = () => {
 
       <main className="container mx-auto px-4 py-8 max-w-5xl">
         <Tabs defaultValue="monitoring" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="monitoring" className="gap-2">
               <Activity className="h-4 w-4" /> Monitoring IA
+            </TabsTrigger>
+            <TabsTrigger value="users" className="gap-2">
+              <Users className="h-4 w-4" /> Utilisateurs
+            </TabsTrigger>
+            <TabsTrigger value="arena-providers" className="gap-2">
+              <Zap className="h-4 w-4" /> Fournisseurs Arena
             </TabsTrigger>
             <TabsTrigger value="config" className="gap-2">
               <Shield className="h-4 w-4" /> Configuration
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="users" className="space-y-6">
+            <UsersManagement />
+          </TabsContent>
+
+          <TabsContent value="arena-providers" className="space-y-6">
+            <ArenaProvidersManagement />
+          </TabsContent>
+
 
           {/* MONITORING TAB */}
           <TabsContent value="monitoring" className="space-y-6">

@@ -66,7 +66,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header with theme toggle */}
-      <header className="absolute top-0 left-0 right-0 z-20 p-4">
+      <header className="fixed top-0 left-0 right-0 z-50 p-4 bg-background/10 backdrop-blur-md border-b border-white/10">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <FileText className="h-6 w-6 text-accent" />
@@ -95,23 +95,26 @@ const Index = () => {
         </div>
       </header>
 
-      <div className="gradient-hero relative overflow-hidden">
+      <div className="gradient-hero relative overflow-hidden min-h-[85vh] flex items-center">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-20"></div>
+        
+        <div className="absolute top-20 left-10 w-72 h-72 bg-accent/20 rounded-full blur-[120px] animate-pulse"></div>
+        <div className="absolute bottom-20 right-10 w-96 h-96 bg-primary/20 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-white/5 rounded-full blur-[100px]"></div>
         
         <div className="container mx-auto px-4 py-24 pt-32 relative z-10">
           <div className="max-w-4xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 bg-accent/10 backdrop-blur-sm border border-accent/20 rounded-full px-4 py-2 mb-8">
-              <Sparkles className="h-4 w-4 text-accent" />
+            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full px-4 py-2 mb-8">
               <span className="text-sm font-medium text-white">Propulsé par l'IA de nouvelle génération</span>
             </div>
             
             <h1 className="text-5xl md:text-7xl font-display font-bold text-white mb-6 leading-tight">
               Transformez vos rapports
               <br />
-              avec l'<span className="text-accent">Intelligence Artificielle</span>
+              avec l'<span className="bg-gradient-to-r from-accent to-cyan-300 bg-clip-text text-transparent">Intelligence Artificielle</span>
             </h1>
             
-            <p className="text-xl text-white/80 mb-8 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl text-white/80 mb-10 max-w-2xl mx-auto leading-relaxed">
               Analysez le passé, comprenez le présent, anticipez le futur.
               Une plateforme complète pour la gestion intelligente de vos documents.
             </p>
@@ -193,38 +196,6 @@ const Index = () => {
         </div>
       </section>
 
-      <section className="container mx-auto px-4 py-24">
-        <Card className="gradient-accent p-12 text-center shadow-glow">
-          <div className="max-w-3xl mx-auto">
-            <h2 className="text-4xl font-display font-bold text-white mb-4">
-              Prêt à révolutionner votre analyse de rapports ?
-            </h2>
-            <p className="text-xl text-white/90 mb-8">
-              Rejoignez des professionnels qui font confiance à notre plateforme pour optimiser leur gestion documentaire
-            </p>
-            {!loading && user ? (
-              <Button
-                size="lg"
-                onClick={() => navigate('/dashboard')}
-                className="text-lg px-8 py-6 bg-white text-primary hover:bg-white/90 shadow-lg transition-base"
-              >
-                <LayoutDashboard className="mr-2 h-5 w-5" />
-                Accéder au tableau de bord
-              </Button>
-            ) : (
-              <Button
-                size="lg"
-                onClick={() => navigate('/auth')}
-                className="text-lg px-8 py-6 bg-white text-primary hover:bg-white/90 shadow-lg transition-base"
-              >
-                Créer un compte gratuitement
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            )}
-          </div>
-        </Card>
-      </section>
-
       <footer className="border-t bg-card mt-24">
         <div className="container mx-auto px-4 py-8">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -233,7 +204,7 @@ const Index = () => {
               <span className="font-display font-bold text-lg">Analyse IA</span>
             </div>
             <p className="text-muted-foreground text-sm text-center">
-              © 2025 Plateforme d'Analyse IA. Tous droits réservés.
+              © 2026 Plateforme d'Analyse IA par Save Tech. Tous droits réservés.
             </p>
           </div>
         </div>

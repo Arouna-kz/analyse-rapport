@@ -1,12 +1,17 @@
 // Multi-Model Arena Configuration
 // Defines available AI models and their roles in the consensus system
 
+export type ModelProvider = 'lovable' | 'openai' | 'gemini' | 'ollama' | 'custom';
+
 export interface AIModel {
   id: string;
   name: string;
   role: string;
   description: string;
+  provider: ModelProvider;
   baseUrl: string;
+  apiKey?: string; // For external models with individual keys
+  modelName?: string; // The actual model name to send to the API
   isLovableAI: boolean;
   enabled: boolean;
   priority: number;
@@ -21,14 +26,26 @@ export interface ArenaConfig {
   minConsensusModels: number;
 }
 
-// Default models configuration - Lovable AI models available by default
+// Provider base URLs
+export const PROVIDER_URLS: Record<ModelProvider, string> = {
+  lovable: 'https://ai.gateway.lovable.dev/v1/chat/completions',
+  openai: 'https://api.openai.com/v1/chat/completions',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  ollama: 'http://localhost:11434/v1/chat/completions',
+  custom: '',
+};
+
+// Default models configuration
 export const DEFAULT_MODELS: AIModel[] = [
+  // Lovable AI Models — Gemini family
   {
     id: 'lovable-gemini-pro',
     name: 'Gemini 2.5 Pro',
     role: 'Chef d\'orchestre & Raisonnement complexe',
     description: 'Modèle principal pour l\'orchestration et le raisonnement avancé',
-    baseUrl: 'https://ai.gateway.lovable.dev/v1/chat/completions',
+    provider: 'lovable',
+    baseUrl: PROVIDER_URLS.lovable,
+    modelName: 'google/gemini-2.5-pro',
     isLovableAI: true,
     enabled: true,
     priority: 1,
@@ -39,18 +56,23 @@ export const DEFAULT_MODELS: AIModel[] = [
     name: 'Gemini 2.5 Flash',
     role: 'Analyse rapide & Polyvalent',
     description: 'Modèle équilibré pour analyses rapides et polyvalentes',
-    baseUrl: 'https://ai.gateway.lovable.dev/v1/chat/completions',
+    provider: 'lovable',
+    baseUrl: PROVIDER_URLS.lovable,
+    modelName: 'google/gemini-2.5-flash',
     isLovableAI: true,
     enabled: true,
     priority: 2,
     capabilities: ['analysis', 'multilingual', 'speed']
   },
+  // Lovable AI Models — OpenAI family (different architecture = meilleur consensus)
   {
     id: 'lovable-gpt5',
     name: 'GPT-5',
     role: 'Rédaction & Précision',
-    description: 'Excellence en rédaction et analyse précise',
-    baseUrl: 'https://ai.gateway.lovable.dev/v1/chat/completions',
+    description: 'Excellence en rédaction et analyse précise (architecture différente de Gemini)',
+    provider: 'lovable',
+    baseUrl: PROVIDER_URLS.lovable,
+    modelName: 'openai/gpt-5',
     isLovableAI: true,
     enabled: true,
     priority: 3,
@@ -61,68 +83,150 @@ export const DEFAULT_MODELS: AIModel[] = [
     name: 'GPT-5 Mini',
     role: 'Vérification & Validation rapide',
     description: 'Vérification rapide et efficace des résultats',
-    baseUrl: 'https://ai.gateway.lovable.dev/v1/chat/completions',
+    provider: 'lovable',
+    baseUrl: PROVIDER_URLS.lovable,
+    modelName: 'openai/gpt-5-mini',
     isLovableAI: true,
     enabled: true,
     priority: 4,
     capabilities: ['verification', 'validation', 'speed']
   },
-  // External models - configurable by user
+  // Lovable AI Models — Next-gen previews
   {
-    id: 'external-gpt-oss-120b',
-    name: 'GPT-OSS-120B',
-    role: 'Chef d\'orchestre & Raisonnement complexe',
-    description: 'Modèle Open Source pour orchestration (vLLM/Ollama)',
-    baseUrl: '',
-    isLovableAI: false,
+    id: 'lovable-gemini-3-flash',
+    name: 'Gemini 3 Flash (Preview)',
+    role: 'Nouvelle génération rapide',
+    description: 'Aperçu du modèle nouvelle génération Google, rapide et performant',
+    provider: 'lovable',
+    baseUrl: PROVIDER_URLS.lovable,
+    modelName: 'google/gemini-3-flash-preview',
+    isLovableAI: true,
     enabled: false,
     priority: 5,
+    capabilities: ['analysis', 'speed', 'reasoning']
+  },
+  {
+    id: 'lovable-gpt52',
+    name: 'GPT-5.2',
+    role: 'Raisonnement avancé dernière génération',
+    description: 'Dernier modèle OpenAI avec raisonnement amélioré',
+    provider: 'lovable',
+    baseUrl: PROVIDER_URLS.lovable,
+    modelName: 'openai/gpt-5.2',
+    isLovableAI: true,
+    enabled: false,
+    priority: 6,
+    capabilities: ['reasoning', 'precision', 'judge']
+  },
+  // Ollama Models (self-hosted, each with distinct model)
+  {
+    id: 'ollama-llama3',
+    name: 'Llama 3.1 8B',
+    role: 'Raisonnement général & Polyvalent',
+    description: 'Modèle open source polyvalent de Meta',
+    provider: 'ollama',
+    baseUrl: PROVIDER_URLS.ollama,
+    modelName: 'llama3.1:8b',
+    isLovableAI: false,
+    enabled: false,
+     priority: 7,
     capabilities: ['reasoning', 'synthesis', 'judge']
   },
   {
-    id: 'external-glm-4.6',
-    name: 'GLM 4.6',
-    role: 'Analyse contextuelle massive & Long documents',
-    description: 'Spécialisé dans l\'analyse de documents longs',
-    baseUrl: '',
-    isLovableAI: false,
-    enabled: false,
-    priority: 6,
-    capabilities: ['long-context', 'analysis']
-  },
-  {
-    id: 'external-qwen3-235b',
-    name: 'Qwen3-235B-Instruct',
-    role: 'Polyvalent & Multilingue',
-    description: 'Excellence multilingue et polyvalence',
-    baseUrl: '',
-    isLovableAI: false,
-    enabled: false,
-    priority: 7,
-    capabilities: ['multilingual', 'versatile']
-  },
-  {
-    id: 'external-deepseek-r1',
-    name: 'DeepSeek-R1-0528',
-    role: 'Mathématiques, Logique stricte & Vérification',
-    description: 'Spécialisé en raisonnement mathématique et logique',
-    baseUrl: '',
+    id: 'ollama-mistral',
+    name: 'Mistral 7B',
+    role: 'Analyse rapide & Efficace',
+    description: 'Modèle performant pour l\'analyse rapide',
+    provider: 'ollama',
+    baseUrl: PROVIDER_URLS.ollama,
+    modelName: 'mistral:7b',
     isLovableAI: false,
     enabled: false,
     priority: 8,
-    capabilities: ['math', 'logic', 'verification', 'judge']
+    capabilities: ['analysis', 'speed', 'multilingual']
   },
   {
-    id: 'external-llama-nemotron',
-    name: 'Llama-3.3-Nemotron-Super-49B',
-    role: 'Rédaction & Utilisation d\'outils RAG',
-    description: 'Excellence en rédaction avec capacités RAG',
-    baseUrl: '',
+    id: 'ollama-qwen',
+    name: 'Qwen2.5 7B',
+    role: 'Multilingue & Rédaction',
+    description: 'Excellence multilingue et polyvalence',
+    provider: 'ollama',
+    baseUrl: PROVIDER_URLS.ollama,
+    modelName: 'qwen2.5:7b',
     isLovableAI: false,
     enabled: false,
     priority: 9,
-    capabilities: ['writing', 'rag', 'tools']
-  }
+    capabilities: ['multilingual', 'writing', 'versatile']
+  },
+  {
+    id: 'ollama-deepseek-r1',
+    name: 'DeepSeek-R1 8B',
+    role: 'Mathématiques & Logique stricte',
+    description: 'Spécialisé en raisonnement mathématique',
+    provider: 'ollama',
+    baseUrl: PROVIDER_URLS.ollama,
+    modelName: 'deepseek-r1:8b',
+    isLovableAI: false,
+    enabled: false,
+    priority: 10,
+    capabilities: ['math', 'logic', 'verification', 'judge']
+  },
+  {
+    id: 'ollama-gemma2',
+    name: 'Gemma 2 9B',
+    role: 'Vérification & Validation',
+    description: 'Modèle Google open source pour la validation',
+    provider: 'ollama',
+    baseUrl: PROVIDER_URLS.ollama,
+    modelName: 'gemma2:9b',
+    isLovableAI: false,
+    enabled: false,
+    priority: 11,
+    capabilities: ['verification', 'validation', 'precision']
+  },
+  // External API Models
+  {
+    id: 'external-openai',
+    name: 'OpenAI GPT-4o',
+    role: 'Raisonnement avancé',
+    description: 'Accès direct à l\'API OpenAI',
+    provider: 'openai',
+    baseUrl: PROVIDER_URLS.openai,
+    modelName: 'gpt-4o',
+    apiKey: '',
+    isLovableAI: false,
+    enabled: false,
+    priority: 10,
+    capabilities: ['reasoning', 'writing', 'judge']
+  },
+  {
+    id: 'external-gemini',
+    name: 'Google Gemini Pro',
+    role: 'Analyse multimodale',
+    description: 'Accès direct à l\'API Google Gemini',
+    provider: 'gemini',
+    baseUrl: PROVIDER_URLS.gemini,
+    modelName: 'gemini-2.5-pro',
+    apiKey: '',
+    isLovableAI: false,
+    enabled: false,
+    priority: 11,
+    capabilities: ['analysis', 'reasoning', 'judge']
+  },
+  {
+    id: 'custom-endpoint',
+    name: 'Endpoint personnalisé',
+    role: 'Modèle personnalisé',
+    description: 'Endpoint OpenAI-compatible personnalisé',
+    provider: 'custom',
+    baseUrl: '',
+    modelName: '',
+    apiKey: '',
+    isLovableAI: false,
+    enabled: false,
+    priority: 12,
+    capabilities: ['versatile']
+  },
 ];
 
 export const DEFAULT_ARENA_CONFIG: ArenaConfig = {
@@ -133,13 +237,14 @@ export const DEFAULT_ARENA_CONFIG: ArenaConfig = {
   minConsensusModels: 2
 };
 
-// Map model IDs to actual model names for API calls
+// Map model IDs to actual model names for API calls (backward compat)
 export const MODEL_API_NAMES: Record<string, string> = {
   'lovable-gemini-pro': 'google/gemini-2.5-pro',
   'lovable-gemini-flash': 'google/gemini-2.5-flash',
   'lovable-gpt5': 'openai/gpt-5',
   'lovable-gpt5-mini': 'openai/gpt-5-mini',
-  // External models use their configured names
+  'lovable-gemini-3-flash': 'google/gemini-3-flash-preview',
+  'lovable-gpt52': 'openai/gpt-5.2',
 };
 
 export const getModelApiName = (modelId: string): string => {
@@ -154,7 +259,6 @@ export const loadArenaConfig = (): ArenaConfig => {
     const stored = localStorage.getItem(ARENA_CONFIG_STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Merge with defaults to ensure new models are included
       return {
         ...DEFAULT_ARENA_CONFIG,
         ...parsed,

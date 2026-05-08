@@ -20,7 +20,6 @@ import { PredictionCharts } from '@/components/PredictionCharts';
 import { PredictionComparison } from '@/components/PredictionComparison';
 import { AnalysisRefinement } from '@/components/AnalysisRefinement';
 import { cleanMarkdown } from '@/lib/textUtils';
-import { useArenaConfig } from '@/hooks/useArenaConfig';
 import { ArenaStatus } from '@/components/ArenaStatus';
 
 interface Report {
@@ -45,7 +44,6 @@ interface Prediction {
 const MultiScenarioPredictions = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { config, getEnabledModels } = useArenaConfig();
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedReports, setSelectedReports] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -388,13 +386,10 @@ const MultiScenarioPredictions = () => {
     setArenaDetails(null);
     
     try {
-      const enabledModels = getEnabledModels();
-      
       const { data, error } = await supabase.functions.invoke('multi-scenario-predictions', {
         body: { 
           baseReportIds: selectedReports,
           useArena: useArenaMode,
-          models: useArenaMode ? enabledModels : undefined
         }
       });
 
@@ -409,7 +404,7 @@ const MultiScenarioPredictions = () => {
       toast({
         title: useArenaMode ? "Prédictions Arena générées" : "Prédictions générées",
         description: useArenaMode 
-          ? `Consensus multi-modèles avec ${enabledModels.length} modèles`
+          ? "Consensus multi-modèles configuré par l'admin"
           : "Les 3 scénarios ont été générés avec succès",
       });
     } catch (error: any) {
@@ -468,10 +463,6 @@ const MultiScenarioPredictions = () => {
               <BarChart3 className="h-4 w-4 mr-2" />
               Analytics
             </Button>
-            <Button variant="outline" onClick={() => navigate('/arena-settings')}>
-              <Settings2 className="h-4 w-4 mr-2" />
-              Config Arena
-            </Button>
           </div>
           
           {/* Arena Mode Toggle */}
@@ -505,7 +496,7 @@ const MultiScenarioPredictions = () => {
               </h1>
               <p className="text-muted-foreground mt-1">
                 {useArenaMode 
-                  ? `Prévisions par consensus multi-modèles (${getEnabledModels().length} modèles actifs)`
+                  ? 'Prévisions par consensus multi-modèles configuré par l\'admin'
                   : 'Générez des prévisions optimistes, réalistes et pessimistes basées sur vos rapports'
                 }
               </p>
@@ -521,24 +512,20 @@ const MultiScenarioPredictions = () => {
                   Analyse Arena en cours...
                 </CardTitle>
                 <CardDescription>
-                  Interrogation de {getEnabledModels().length} modèles en parallèle
+                  Interrogation de plusieurs modèles en parallèle
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {getEnabledModels().map((model) => (
-                    <div key={model.id} className="flex items-center justify-between text-sm">
-                      <span>{model.name}</span>
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                    </div>
-                  ))}
+                <div className="flex items-center gap-2 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span>Consensus multi-modèles en cours…</span>
                 </div>
               </CardContent>
             </Card>
           )}
           
           {/* Arena Results Summary */}
-          {arenaDetails && config.showExpertMode && (
+          {arenaDetails && (
             <Card className="mb-4 border-primary/20">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">

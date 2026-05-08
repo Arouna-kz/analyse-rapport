@@ -12,7 +12,6 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Send, Loader2, MessageSquare, Sparkles, Cpu, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { cleanMarkdown } from '@/lib/textUtils';
-import { useArenaConfig } from '@/hooks/useArenaConfig';
 import { ArenaResults, ModelResponse } from '@/components/ArenaResults';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ConversationSidebar } from '@/components/ConversationSidebar';
@@ -44,7 +43,6 @@ const Chat = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { config, getEnabledModels } = useArenaConfig();
 
   useEffect(() => {
     checkAuthAndInit();
@@ -192,13 +190,11 @@ const Chat = () => {
       let arenaResult: ArenaResult | undefined;
 
       if (useArena) {
-        const enabledModels = getEnabledModels();
         const { data, error } = await supabase.functions.invoke('arena', {
           body: { 
             prompt: userMessage,
             systemPrompt: 'Tu es un assistant IA professionnel spécialisé dans l\'analyse de rapports et documents. Tu fournis des analyses détaillées et structurées.',
-            models: enabledModels.map(m => ({ id: m.id, name: m.name, baseUrl: m.baseUrl, isLovableAI: m.isLovableAI })),
-            judgeModelId: config.judgeModelId,
+            models: [],
             conversationHistory: historyMessages
           },
         });
@@ -250,7 +246,7 @@ const Chat = () => {
     } 
   };
 
-  const enabledModels = getEnabledModels();
+  
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -267,9 +263,6 @@ const Chat = () => {
                 <Badge variant="outline" className="ml-2 text-xs">Pro</Badge>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => navigate('/arena-settings')} title="Paramètres Arena">
-              <Settings className="h-4 w-4" />
-            </Button>
             <ThemeToggle />
           </div>
         </div>
@@ -302,7 +295,7 @@ const Chat = () => {
                   </div>
                   {useArena && (
                     <Badge variant="secondary" className="bg-purple-500/10 text-purple-600 border-purple-500/20">
-                      {enabledModels.length} modèle(s)
+                      Multi-modèles
                     </Badge>
                   )}
                 </div>
@@ -319,7 +312,7 @@ const Chat = () => {
                       </div>
                       <h3 className="text-xl font-bold mb-2">{useArena ? 'Mode Arena Activé' : 'Bienvenue !'}</h3>
                       <p className="text-muted-foreground mb-4">
-                        {useArena ? `${enabledModels.length} modèles IA travailleront ensemble pour des réponses optimales.` : 'Posez-moi des questions sur vos rapports.'}
+                        {useArena ? 'Plusieurs modèles IA travailleront ensemble pour des réponses optimales.' : 'Posez-moi des questions sur vos rapports.'}
                       </p>
                       <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">💬 Questions</span>
@@ -337,7 +330,7 @@ const Chat = () => {
                         </div>
                       </div>
                       
-                      {message.role === 'assistant' && message.arenaResult && config.showExpertMode && (
+                      {message.role === 'assistant' && message.arenaResult && (
                         <Collapsible open={showArenaDetails} onOpenChange={setShowArenaDetails} className="mt-2 max-w-[80%]">
                           <CollapsibleTrigger asChild>
                             <Button variant="ghost" size="sm" className="gap-1 text-xs text-purple-500">

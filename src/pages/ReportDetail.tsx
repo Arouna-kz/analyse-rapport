@@ -22,7 +22,7 @@ import { AnalysisVersionHistory } from '@/components/AnalysisVersionHistory';
 import { FileTypeIndicator } from '@/components/FileTypeIndicator';
 import { ExtractedContentPreview } from '@/components/ExtractedContentPreview';
 import { cleanMarkdown } from '@/lib/textUtils';
-import { useArenaConfig } from '@/hooks/useArenaConfig';
+
 import * as XLSX from 'xlsx';
 
 interface Report {
@@ -50,7 +50,7 @@ interface Analysis {
   arena_score?: number | null;
 }
 
-const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', 'hsl(185 80% 50%)', 'hsl(280 70% 60%)', 'hsl(45 90% 55%)', 'hsl(340 75% 55%)'];
+const COLORS = ['hsl(210 90% 55%)', 'hsl(145 65% 50%)', 'hsl(35 95% 55%)', 'hsl(280 70% 60%)', 'hsl(340 75% 55%)', 'hsl(185 80% 50%)', 'hsl(50 90% 55%)', 'hsl(0 75% 55%)'];
 
 const ReportDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -618,11 +618,14 @@ const ReportDetail = () => {
                           <Pie
                             data={kpiData}
                             cx="50%"
-                            cy="50%"
+                            cy="45%"
                             labelLine={false}
-                            label={kpiData.length <= 4 ? ({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%` : false}
+                            label={false}
                             outerRadius="70%"
-                            fill="hsl(var(--primary))"
+                            innerRadius="35%"
+                            paddingAngle={2}
+                            stroke="hsl(var(--background))"
+                            strokeWidth={2}
                             dataKey="value"
                           >
                             {kpiData.map((entry, index) => (
@@ -637,8 +640,20 @@ const ReportDetail = () => {
                               color: 'hsl(var(--foreground))',
                             }}
                             itemStyle={{ color: 'hsl(var(--foreground))' }}
+                            formatter={(value: any, name: any) => [value, name]}
                           />
-                          <Legend />
+                          <Legend 
+                            verticalAlign="bottom"
+                            height={36}
+                            iconType="circle"
+                            wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                            {...({ payload: kpiData.map((entry, index) => ({
+                              value: entry.name,
+                              type: 'circle',
+                              id: entry.name,
+                              color: COLORS[index % COLORS.length],
+                            })) } as any)}
+                          />
                         </PieChart>
                       </ResponsiveContainer>
                     </ExpandableChart>
