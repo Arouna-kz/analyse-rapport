@@ -161,7 +161,7 @@ export const MODEL_API_NAMES: Record<string, string> = {
 /**
  * Log AI usage to the ai_usage_logs table (fire-and-forget)
  */
-async function logAIUsage(params: {
+export async function logAIUsage(params: {
   functionName: string;
   provider: string;
   model: string;

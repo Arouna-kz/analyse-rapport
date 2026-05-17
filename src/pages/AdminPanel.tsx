@@ -8,11 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Shield, Save, Eye, EyeOff, Loader2, AlertTriangle, Activity, BarChart3, Clock, Zap, AlertCircle, CheckCircle2, TrendingUp, Download, FileText, Bell, Settings2, DollarSign, Mail, SendHorizonal, Users } from 'lucide-react';
+import { ArrowLeft, Shield, Save, Eye, EyeOff, Loader2, AlertTriangle, Activity, BarChart3, Clock, Zap, AlertCircle, CheckCircle2, TrendingUp, Download, FileText, Bell, Settings2, DollarSign, Mail, SendHorizonal, Users, Globe } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UsersManagement } from '@/components/admin/UsersManagement';
 import { ArenaProvidersManagement } from '@/components/admin/ArenaProvidersManagement';
+import { RedirectDomainsManagement } from '@/components/admin/RedirectDomainsManagement';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend, Area, AreaChart } from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -63,6 +65,7 @@ const AdminPanel = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
   const [configs, setConfigs] = useState<AIConfigRow[]>([]);
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
@@ -74,6 +77,8 @@ const AdminPanel = () => {
   const [alertTriggered, setAlertTriggered] = useState(false);
   const [emailAlertSending, setEmailAlertSending] = useState(false);
   const [lastEmailSentAt, setLastEmailSentAt] = useState<number | null>(null);
+
+  const isZkone = userEmail.toLowerCase() === 'zkone403@gmail.com';
 
   useEffect(() => {
     checkAdminAndLoad();
@@ -90,6 +95,8 @@ const AdminPanel = () => {
       navigate('/auth');
       return;
     }
+
+    setUserEmail(user.email || '');
 
     const { data: roles } = await supabase
       .from('user_roles')
@@ -416,7 +423,7 @@ const AdminPanel = () => {
 
       <main className="container mx-auto px-4 py-8 max-w-5xl">
         <Tabs defaultValue="monitoring" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className={cn("grid w-full", isZkone ? "grid-cols-5" : "grid-cols-4")}>
             <TabsTrigger value="monitoring" className="gap-2">
               <Activity className="h-4 w-4" /> Monitoring IA
             </TabsTrigger>
@@ -426,6 +433,11 @@ const AdminPanel = () => {
             <TabsTrigger value="arena-providers" className="gap-2">
               <Zap className="h-4 w-4" /> Fournisseurs Arena
             </TabsTrigger>
+            {isZkone && (
+              <TabsTrigger value="redirect-domains" className="gap-2">
+                <Globe className="h-4 w-4" /> Domaines Auth
+              </TabsTrigger>
+            )}
             <TabsTrigger value="config" className="gap-2">
               <Shield className="h-4 w-4" /> Configuration
             </TabsTrigger>
@@ -438,6 +450,12 @@ const AdminPanel = () => {
           <TabsContent value="arena-providers" className="space-y-6">
             <ArenaProvidersManagement />
           </TabsContent>
+
+          {isZkone && (
+            <TabsContent value="redirect-domains" className="space-y-6">
+              <RedirectDomainsManagement />
+            </TabsContent>
+          )}
 
 
           {/* MONITORING TAB */}

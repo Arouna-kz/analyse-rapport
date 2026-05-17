@@ -7,39 +7,58 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { FileText, Loader2, ArrowLeft, Lock } from 'lucide-react';
+import { isOriginAllowed, RELAY_ORIGIN } from '@/lib/authRelay';
 
 const ResetPassword = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
+  const [relaying, setRelaying] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
+    // Relay logic: if we're on the relay domain AND have a return_to param,
+    // forward the hash (containing the recovery token) to the target domain.
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = params.get('return_to');
+    const hash = window.location.hash;
+
+    if (returnTo && window.location.origin === RELAY_ORIGIN) {
+      setRelaying(true);
+      (async () => {
+        const allowed = await isOriginAllowed(returnTo);
+        if (allowed) {
+          // Forward with hash preserved so the recovery token is available on the target
+          window.location.replace(`${returnTo}/reset-password${hash || ''}`);
+        } else {
+          toast({
+            title: 'Domaine non autorisé',
+            description: `Le domaine ${returnTo} n'est pas dans la liste blanche.`,
+            variant: 'destructive',
+          });
+          setRelaying(false);
+        }
+      })();
+      return;
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
         setReady(true);
       }
     });
 
-    // Check URL hash for recovery token or existing session
-    const hash = window.location.hash;
     if (hash && (hash.includes('type=recovery') || hash.includes('access_token'))) {
-      // Give Supabase a moment to process the hash
       setTimeout(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session) {
-            setReady(true);
-          }
+          if (session) setReady(true);
         });
       }, 1000);
     } else {
-      // No hash - check existing session directly
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          setReady(true);
-        }
+        if (session) setReady(true);
       });
     }
 
@@ -95,12 +114,14 @@ const ResetPassword = () => {
     setLoading(false);
   };
 
-  if (!ready) {
+  if (relaying || !ready) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 gradient-hero">
         <div className="w-full max-w-md space-y-8 text-center">
           <Loader2 className="h-8 w-8 animate-spin text-white mx-auto" />
-          <p className="text-white/80">Vérification du lien de réinitialisation...</p>
+          <p className="text-white/80">
+            {relaying ? 'Redirection vers votre application…' : 'Vérification du lien de réinitialisation...'}
+          </p>
         </div>
       </div>
     );

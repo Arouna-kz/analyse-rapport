@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.ai-error-alert]
 verify_jwt = false
+
+[functions.validate-redirect-origin]
+verify_jwt = false

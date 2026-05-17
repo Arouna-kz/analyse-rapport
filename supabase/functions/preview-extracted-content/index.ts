@@ -1,46 +1,113 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
+// Pure-JS extractors — portables, sans dépendance SaaS (remplacent Cloudmersive)
+import { extractText as unpdfExtractText, getDocumentProxy } from 'npm:unpdf@0.12.1';
+import mammoth from 'npm:mammoth@1.8.0';
+import * as XLSX from 'npm:xlsx@0.18.5';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Helper function to convert Excel JSON data to readable text
-function formatExcelJsonToText(jsonData: any): string {
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let j = 0; j < buf.length; j += CHUNK) {
+    binary += String.fromCharCode(...buf.subarray(j, j + CHUNK));
+  }
+  return btoa(binary);
+}
+
+async function extractPdfText(fileData: Blob): Promise<string> {
   try {
-    let result = '';
-    
-    if (Array.isArray(jsonData)) {
-      jsonData.forEach((sheet: any, sheetIndex: number) => {
-        const sheetName = sheet.SheetName || `Feuille ${sheetIndex + 1}`;
-        result += `\n=== ${sheetName} ===\n`;
-        
-        if (sheet.Rows && Array.isArray(sheet.Rows)) {
-          sheet.Rows.forEach((row: any) => {
-            if (row.Cells && Array.isArray(row.Cells)) {
-              const cellValues = row.Cells.map((cell: any) => {
-                if (cell.TextValue) return cell.TextValue;
-                if (cell.Value !== undefined) return String(cell.Value);
-                if (cell.Formula) return `[Formule: ${cell.Formula}]`;
-                return '';
-              }).filter((v: string) => v.trim() !== '');
-              
-              if (cellValues.length > 0) {
-                result += cellValues.join(' | ') + '\n';
-              }
-            }
-          });
-        }
-      });
-    } else if (typeof jsonData === 'object') {
-      result = JSON.stringify(jsonData, null, 2);
-    }
-    
-    return result || JSON.stringify(jsonData, null, 2);
+    const buf = new Uint8Array(await fileData.arrayBuffer());
+    const pdf = await getDocumentProxy(buf);
+    const { text } = await unpdfExtractText(pdf, { mergePages: true });
+    return Array.isArray(text) ? text.join('\n') : (text || '');
   } catch (e) {
-    console.error('Error formatting Excel JSON:', e);
-    return JSON.stringify(jsonData, null, 2);
+    console.error('[unpdf] failed:', e);
+    return '';
+  }
+}
+
+async function extractDocxText(fileData: Blob): Promise<string> {
+  try {
+    const buf = await fileData.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: buf });
+    return result.value || '';
+  } catch (e) {
+    console.error('[mammoth] failed:', e);
+    return '';
+  }
+}
+
+async function extractXlsxText(fileData: Blob): Promise<string> {
+  try {
+    const buf = new Uint8Array(await fileData.arrayBuffer());
+    const wb = XLSX.read(buf, { type: 'array' });
+    const parts: string[] = [];
+    for (const sheetName of wb.SheetNames) {
+      const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName], { FS: ' | ' });
+      if (csv.trim()) parts.push(`=== ${sheetName} ===\n${csv}`);
+    }
+    return parts.join('\n\n');
+  } catch (e) {
+    console.error('[xlsx] failed:', e);
+    return '';
+  }
+}
+
+import { logAIUsage } from '../_shared/ai-provider.ts';
+
+// Envoie le document binaire entier à Gemini via Lovable AI (100 % LOVABLE_API_KEY)
+async function visionExtractWholeDocument(
+  fileData: Blob,
+  mimeType: string,
+  reportTitle: string,
+  lovableApiKey: string,
+): Promise<string> {
+  const start = Date.now();
+  const model = 'google/gemini-2.5-pro';
+  try {
+    const base64 = await blobToBase64(fileData);
+    const resp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${lovableApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'Tu es un expert en OCR. Extrais TOUT le texte visible du document (toutes pages), en préservant les tableaux avec "|", titres, listes et tous les chiffres/dates/montants.' },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: `Extrais intégralement le contenu de "${reportTitle}".` },
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
+            ]
+          }
+        ],
+        temperature: 0.1,
+      }),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error('[VISION] Lovable AI failed:', resp.status, errText);
+      logAIUsage({ functionName: 'preview-extracted-content', provider: 'lovable', model,
+        status: 'error', latencyMs: Date.now() - start, errorMessage: `HTTP ${resp.status}` });
+      return '';
+    }
+    const data = await resp.json();
+    const usage = data?.usage;
+    logAIUsage({ functionName: 'preview-extracted-content', provider: 'lovable', model,
+      status: 'success', latencyMs: Date.now() - start,
+      inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens, totalTokens: usage?.total_tokens });
+    return data?.choices?.[0]?.message?.content || '';
+  } catch (e) {
+    console.error('[VISION] error:', e);
+    logAIUsage({ functionName: 'preview-extracted-content', provider: 'lovable', model,
+      status: 'error', latencyMs: Date.now() - start, errorMessage: e instanceof Error ? e.message : 'unknown' });
+    return '';
   }
 }
 
@@ -51,220 +118,54 @@ serve(async (req) => {
 
   try {
     const { reportId } = await req.json();
-    
     if (!reportId) {
-      return new Response(
-        JSON.stringify({ error: 'Report ID is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'Report ID is required' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const cloudmersiveApiKey = Deno.env.get('CLOUDMERSIVE_API_KEY')!;
-    
+    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get report details
     const { data: report, error: reportError } = await supabase
-      .from('reports')
-      .select('*')
-      .eq('id', reportId)
-      .single();
+      .from('reports').select('*').eq('id', reportId).single();
+    if (reportError || !report) throw new Error('Report not found');
 
-    if (reportError || !report) {
-      throw new Error('Report not found');
-    }
-
-    // Download file from storage
     const { data: fileData, error: downloadError } = await supabase.storage
-      .from('reports')
-      .download(report.file_path);
+      .from('reports').download(report.file_path);
+    if (downloadError || !fileData) throw new Error('Failed to download file');
 
-    if (downloadError || !fileData) {
-      throw new Error('Failed to download file');
-    }
-
-    // Extract text based on file type
     let extractedText = '';
     const isExcel = report.file_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
                     report.file_type === 'application/vnd.ms-excel' ||
-                    report.file_path?.endsWith('.xlsx') ||
-                    report.file_path?.endsWith('.xls');
+                    report.file_path?.endsWith('.xlsx') || report.file_path?.endsWith('.xls');
     const isImage = report.file_type?.startsWith('image/') ||
                     /\.(jpg|jpeg|png|webp|gif|bmp|tiff)$/i.test(report.file_path || '');
-    
-    if (isImage) {
-      // Direct AI Vision extraction for images
-      console.log('Processing image file with AI Vision...');
-      try {
-        const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-        if (lovableApiKey) {
-          const arrayBuffer = await fileData.arrayBuffer();
-          const uint8 = new Uint8Array(arrayBuffer);
-          let binary = '';
-          for (let i = 0; i < uint8.length; i++) {
-            binary += String.fromCharCode(uint8[i]);
-          }
-          const base64Data = btoa(binary);
-          const mimeType = report.file_type || 'image/jpeg';
 
-          const visionResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${lovableApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'google/gemini-2.5-pro',
-              messages: [
-                {
-                  role: 'system',
-                  content: 'Tu es un expert en OCR. Extrais TOUT le texte visible de l\'image, en préservant la structure (tableaux, colonnes, titres). Pour les tableaux, utilise des séparateurs "|".'
-                },
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: `Extrais intégralement le contenu de cette image "${report.title}".` },
-                    { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
-                  ]
-                }
-              ],
-              temperature: 0.1,
-            }),
-          });
-
-          if (visionResponse.ok) {
-            const visionData = await visionResponse.json();
-            extractedText = visionData.choices?.[0]?.message?.content || '';
-            console.log('Image Vision extraction successful, length:', extractedText.length);
-          }
-        }
-      } catch (e) {
-        console.error('Image extraction error:', e);
-      }
-
-      if (!extractedText || extractedText.replace(/\s+/g, '').length < 20) {
-        extractedText = `[Image]\nTitre: ${report.title}\nType: ${report.file_type}\nTaille: ${fileData.size} bytes\nNote: Aucun texte significatif extrait de l'image.`;
+    if (isImage && lovableApiKey) {
+      extractedText = await visionExtractWholeDocument(fileData, report.file_type || 'image/jpeg', report.title, lovableApiKey);
+      if (!extractedText.trim()) {
+        extractedText = `[Image]\nTitre: ${report.title}\nType: ${report.file_type}\nTaille: ${fileData.size} bytes`;
       }
     } else if (report.file_type === 'text/plain') {
       extractedText = await fileData.text();
     } else if (isExcel) {
-      const formData = new FormData();
-      formData.append('inputFile', fileData);
-      
-      try {
-        // Try Excel to CSV conversion
-        const csvResponse = await fetch('https://api.cloudmersive.com/convert/xlsx/to/csv', {
-          method: 'POST',
-          headers: { 'Apikey': cloudmersiveApiKey },
-          body: formData,
-        });
-
-        if (csvResponse.ok) {
-          extractedText = await csvResponse.text();
-        } else {
-          // Fallback: try Excel to JSON
-          const formData2 = new FormData();
-          formData2.append('inputFile', fileData);
-          
-          const jsonResponse = await fetch('https://api.cloudmersive.com/convert/xlsx/to/json', {
-            method: 'POST',
-            headers: { 'Apikey': cloudmersiveApiKey },
-            body: formData2,
-          });
-
-          if (jsonResponse.ok) {
-            const jsonData = await jsonResponse.json();
-            extractedText = formatExcelJsonToText(jsonData);
-          } else {
-            extractedText = `[Fichier Excel - Extraction non disponible]\nTitre: ${report.title}\nTaille: ${fileData.size} bytes`;
-          }
-        }
-      } catch (e) {
-        console.error('Excel extraction error:', e);
-        extractedText = `[Fichier Excel]\nTitre: ${report.title}\nErreur d'extraction: ${e instanceof Error ? e.message : 'Unknown error'}`;
-      }
-    } else if (report.file_type === 'application/pdf' || 
-               report.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      const formData = new FormData();
-      formData.append('inputFile', fileData);
-      
-      const endpoint = report.file_type === 'application/pdf' 
-        ? 'https://api.cloudmersive.com/convert/pdf/to/txt'
-        : 'https://api.cloudmersive.com/convert/docx/to/txt';
-      
-      try {
-        const extractResponse = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Apikey': cloudmersiveApiKey },
-          body: formData,
-        });
-
-        if (extractResponse.ok) {
-          const result = await extractResponse.json();
-          extractedText = result.TextResult || '';
-        } else {
-          extractedText = '';
-        }
-      } catch (e) {
-        console.error('Document extraction error:', e);
-        extractedText = '';
-      }
+      extractedText = await extractXlsxText(fileData);
+    } else if (report.file_type === 'application/pdf') {
+      extractedText = await extractPdfText(fileData);
+    } else if (report.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      extractedText = await extractDocxText(fileData);
     }
 
-    // ===== HYBRID OCR FALLBACK via AI Vision =====
+    // Vision fallback (PDF scanné ou DOCX vide)
     const isTextTooShort = extractedText.replace(/\s+/g, '').length < 80;
-    if (isTextTooShort && (report.file_type === 'application/pdf' || report.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
-      console.log('Text extraction insufficient, activating AI Vision OCR fallback...');
-      try {
-        const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-        if (lovableApiKey) {
-          const arrayBuffer = await fileData.arrayBuffer();
-          const uint8 = new Uint8Array(arrayBuffer);
-          let binary = '';
-          for (let i = 0; i < uint8.length; i++) {
-            binary += String.fromCharCode(uint8[i]);
-          }
-          const base64Data = btoa(binary);
-          const mimeType = report.file_type;
-
-          const visionResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${lovableApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'google/gemini-2.5-pro',
-              messages: [
-                {
-                  role: 'system',
-                  content: 'Tu es un expert en OCR. Extrais TOUT le texte visible du document, en préservant la structure (tableaux, colonnes, titres). Pour les tableaux, utilise des séparateurs "|".'
-                },
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: `Extrais intégralement le contenu de ce document "${report.title}".` },
-                    { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
-                  ]
-                }
-              ],
-              temperature: 0.1,
-            }),
-          });
-
-          if (visionResponse.ok) {
-            const visionData = await visionResponse.json();
-            const visionText = visionData.choices?.[0]?.message?.content || '';
-            if (visionText.replace(/\s+/g, '').length > 80) {
-              extractedText = `[Extraction par OCR IA]\n${visionText}`;
-              console.log('AI Vision OCR successful, length:', extractedText.length);
-            }
-          }
-        }
-      } catch (visionErr) {
-        console.error('AI Vision OCR error:', visionErr);
+    if (isTextTooShort && lovableApiKey && (report.file_type === 'application/pdf' || report.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
+      console.log('Text extraction insufficient — sending whole binary to Gemini Vision...');
+      const ocrText = await visionExtractWholeDocument(fileData, report.file_type, report.title, lovableApiKey);
+      if (ocrText.replace(/\s+/g, '').length > 80) {
+        extractedText = `[Extraction par OCR IA — Gemini Vision]\n${ocrText}`;
       }
     }
 
@@ -272,21 +173,17 @@ serve(async (req) => {
       extractedText = `Aucun contenu textuel n'a pu être extrait de ce fichier.\nType: ${report.file_type}\nTaille: ${fileData.size} bytes`;
     }
 
-    return new Response(
-      JSON.stringify({ 
-        extractedText,
-        fileType: report.file_type,
-        fileName: report.title,
-        fileSize: fileData.size
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({
+      extractedText,
+      fileType: report.file_type,
+      fileName: report.title,
+      fileSize: fileData.size
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
     console.error('Error:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 });

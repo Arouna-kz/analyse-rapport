@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.84.0';
-import { getAIProviderConfig, MODEL_API_NAMES } from '../_shared/ai-provider.ts';
+import { getAIProviderConfig, MODEL_API_NAMES, logAIUsage } from '../_shared/ai-provider.ts';
 import { mergeAdminArenaProviders, filterCallableModels } from '../_shared/arena-providers.ts';
 
 const corsHeaders = {
@@ -89,13 +89,27 @@ async function queryModel(
       console.error(`Model ${model.name} error (attempt 1):`, response.status);
       await new Promise(r => setTimeout(r, 1000));
       response = await doFetch();
-      if (!response.ok) throw new Error(`API error: ${response.status}`);
+      if (!response.ok) {
+        const latency = Date.now() - startTime;
+        logAIUsage({
+          functionName: 'arena', provider: model.provider, model: modelName,
+          status: 'error', latencyMs: latency, errorMessage: `HTTP ${response.status}`,
+        });
+        throw new Error(`API error: ${response.status}`);
+      }
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     const processingTime = Date.now() - startTime;
     const confidence = Math.min(0.95, 0.5 + (content.length / 2000) * 0.3 + 0.15);
+
+    const usage = data?.usage;
+    logAIUsage({
+      functionName: 'arena', provider: model.provider, model: modelName,
+      status: 'success', latencyMs: processingTime,
+      inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens, totalTokens: usage?.total_tokens,
+    });
 
     return { modelId: model.id, modelName: model.name, response: content, confidence, processingTime, status: 'success' };
   } catch (error) {
@@ -148,6 +162,7 @@ Réponds en JSON:
   "synthesisNotes": "Notes sur le processus de synthèse"
 }`;
 
+  const judgeStart = Date.now();
   try {
     const { url, apiKey, modelName } = resolveModelEndpoint(judgeModel);
 
@@ -163,10 +178,18 @@ Réponds en JSON:
       }),
     });
 
-    if (!response.ok) throw new Error('Judge model failed');
+    if (!response.ok) {
+      logAIUsage({ functionName: 'arena-judge', provider: judgeModel.provider, model: modelName,
+        status: 'error', latencyMs: Date.now() - judgeStart, errorMessage: `HTTP ${response.status}` });
+      throw new Error('Judge model failed');
+    }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
+    const usage = data?.usage;
+    logAIUsage({ functionName: 'arena-judge', provider: judgeModel.provider, model: modelName,
+      status: 'success', latencyMs: Date.now() - judgeStart,
+      inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens, totalTokens: usage?.total_tokens });
 
     let result;
     try {
@@ -205,7 +228,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Invalid authentication' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { prompt, systemPrompt = 'Tu es un assistant IA expert en analyse.', models, judgeModelId, context, images, conversationHistory } = await req.json();
+    const { prompt, systemPrompt = `Tu es un expert en analyse de documents multi-formats.\n- Si ce document contient une couche de texte, analyse-le normalement.\n- S'il s'agit d'un SCAN (image), utilise tes capacités de vision pour transcrire visuellement les informations, en particulier les tableaux de données, les chiffres clés et les titres de section.\nTa mission est d'extraire la substance du rapport (KPIs, conclusions, données financières) quel que soit le support visuel. Ne rejette jamais un document au motif qu'il manque de texte brut : décris ce que tu vois sur les images, transcris fidèlement les tableaux avec des séparateurs "|", et conserve tous les chiffres, dates et montants.`, models, judgeModelId, context, images, conversationHistory } = await req.json();
 
     if (!prompt) {
       return new Response(JSON.stringify({ error: 'Prompt is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

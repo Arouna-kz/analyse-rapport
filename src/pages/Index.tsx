@@ -204,7 +204,7 @@ const Index = () => {
               <span className="font-display font-bold text-lg">Analyse IA</span>
             </div>
             <p className="text-muted-foreground text-sm text-center">
-              © 2026 Plateforme d'Analyse IA par Save Tech. Tous droits réservés.
+              © 2025 Plateforme d'Analyse IA par Save Tech. Tous droits réservés.
             </p>
           </div>
         </div>

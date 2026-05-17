@@ -97,6 +97,36 @@ export type Database = {
         }
         Relationships: []
       }
+      allowed_redirect_domains: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          origin: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          origin: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          origin?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       arena_providers: {
         Row: {
           api_key: string | null
