@@ -1,32 +1,27 @@
 import { supabase } from '@/integrations/supabase/client';
 
 /**
- * Origine du "relais" d'authentification : c'est l'URL Site configurée
- * côté backend (Supabase Auth). Tous les emails (reset password, confirmation)
- * pointent vers ce domaine. La page /reset-password de ce domaine relaie
- * ensuite vers le domaine d'origine de l'utilisateur (Vercel, custom domain...).
+ * Mode DIRECT : les liens d'auth pointent directement sur le domaine courant.
+ * Plus de passage par un domaine relais. Chaque domaine de déploiement doit
+ * être ajouté dans Backend → Auth Settings → URL Configuration → Redirect URLs
+ * (ex. https://mon-domaine.com/**).
+ *
+ * RELAY_ORIGIN est conservé uniquement pour rétro-compatibilité de l'UI admin
+ * (badge "Relais"). Il n'est plus utilisé pour construire les URLs.
  */
 export const RELAY_ORIGIN = 'https://report-whisperer-41.lovable.app';
 
 /**
  * Construit l'URL de redirection à passer à supabase.auth.resetPasswordForEmail
- * ou signUp. Si on est déjà sur le relais, on cible directement /reset-password.
- * Sinon on passe par le relais avec un paramètre return_to.
+ * ou signUp. Toujours l'origine du domaine courant.
  */
 export function buildAuthRedirectUrl(path: string): string {
-  const currentOrigin = window.location.origin;
-  if (currentOrigin === RELAY_ORIGIN) {
-    return `${RELAY_ORIGIN}${path}`;
-  }
-  const returnTo = encodeURIComponent(currentOrigin);
-  return `${RELAY_ORIGIN}${path}?return_to=${returnTo}`;
+  return `${window.location.origin}${path}`;
 }
 
 /**
- * Validation STRICTE côté serveur via edge function.
- * Vérifie le format et la présence dans la whitelist en utilisant le service_role
- * (donc indépendant de la session utilisateur courante, qui peut ne pas exister
- * lors d'un flow de reset password).
+ * Validation STRICTE côté serveur via edge function — utilisée par le code
+ * legacy si un ancien email avec ?return_to= arrive encore.
  */
 export async function isOriginAllowed(origin: string): Promise<boolean> {
   try {
